@@ -20,6 +20,7 @@ _CHUNK_SIZE = 64 * 1024
 _RANGE_PATTERN = re.compile(r"bytes=(\d*)-(\d*)$")
 _BROWSER_SAFE_CODECS = {"h264", "vp8", "vp9", "av1"}
 _BROWSER_SAFE_PIXEL_FORMATS = {"yuv420p", "yuvj420p"}
+_MANROPE_FONT = Path(__file__).with_name("assets") / "Manrope-Variable.ttf"
 
 
 def thumbnail_indices(count: int, limit: int = DEFAULT_THUMBNAIL_LIMIT) -> list[int]:
@@ -220,21 +221,24 @@ def render_picker_html(video_name: str) -> str:
 <link rel="icon" href="data:,">
 <title>Frame picker | {safe_name}</title>
 <style>
+  @font-face {{
+    font-family: "Manrope";
+    src: url("/font") format("truetype");
+    font-style: normal;
+    font-weight: 200 800;
+    font-display: swap;
+  }}
   :root {{
     color-scheme: dark;
-    --carbon: #090b0c;
-    --dash: #13171a;
-    --raised: #1a2024;
-    --etched: #2b3338;
-    --ivory: #f4f1e8;
-    --muted: #8d989f;
-    --launch: #72b8d2;
-    --launch-dark: #142b34;
-    --hundred: #ff6b4a;
-    --hundred-dark: #351b16;
-    --success: #94c7a4;
-    --font-ui: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
-    --font-display: "Segoe UI Variable Display", "Segoe UI", Arial, sans-serif;
+    --carbon: #090a0b;
+    --dash: #111315;
+    --raised: #181b1e;
+    --etched: #2b2f33;
+    --ivory: #f2f2ef;
+    --muted: #92979d;
+    --soft: #c2c5c8;
+    --font-ui: "Manrope", "Segoe UI", Arial, sans-serif;
+    --font-display: "Manrope", "Segoe UI", Arial, sans-serif;
   }}
   * {{ box-sizing: border-box; }}
   body {{
@@ -351,14 +355,14 @@ def render_picker_html(video_name: str) -> str:
   button {{
     min-height: 42px;
     border: 1px solid var(--etched);
-    border-radius: 3px;
+    border-radius: 4px;
     padding: 8px 12px;
     background: var(--raised);
     color: var(--ivory);
     font: 600 13.5px/1 var(--font-ui);
     cursor: pointer;
   }}
-  button:hover {{ border-color: #59646b; background: #20272b; }}
+  button:hover {{ border-color: #5a5f64; background: #202326; }}
   button:focus-visible {{ outline: 2px solid var(--ivory); outline-offset: 2px; }}
   button:disabled {{ cursor: not-allowed; opacity: .42; }}
   .transport-buttons button {{
@@ -375,9 +379,9 @@ def render_picker_html(video_name: str) -> str:
     min-height: 22px;
     margin-right: 8px;
     place-items: center;
-    border: 1px solid #4a5562;
-    border-radius: 3px;
-    background: #0d1014;
+    border: 1px solid #3b4045;
+    border-radius: 4px;
+    background: #0d0f10;
     color: var(--muted);
     font: 600 11px/1 var(--font-ui);
   }}
@@ -419,12 +423,9 @@ def render_picker_html(video_name: str) -> str:
     font: 580 19px/1 var(--font-display);
     font-variant-numeric: tabular-nums;
   }}
-  .launch-endpoint .mark-control {{ border-left: 3px solid var(--launch); }}
-  .launch-endpoint .mark-control.marked {{ background: var(--launch-dark); }}
-  .launch-endpoint .marked .mark-value {{ color: var(--launch); }}
-  .hundred-endpoint .mark-control {{ border-left: 3px solid var(--hundred); }}
-  .hundred-endpoint .mark-control.marked {{ background: var(--hundred-dark); }}
-  .hundred-endpoint .marked .mark-value {{ color: var(--hundred); }}
+  .mark-control {{ border-left: 2px solid #555a60; }}
+  .mark-control.marked {{ border-color: var(--soft); background: #1c1f22; }}
+  .mark-control.marked .mark-value {{ color: var(--ivory); }}
   .jump {{ min-height: 32px; padding: 6px 10px; color: var(--muted); font-size: 12px; }}
   .interval {{
     display: grid;
@@ -439,30 +440,34 @@ def render_picker_html(video_name: str) -> str:
     width: 1px;
     height: 48px;
     justify-self: center;
-    background: linear-gradient(var(--launch), var(--hundred));
+    background: var(--etched);
   }}
   .interval-line::before, .interval-line::after {{
     position: absolute;
     left: -3px;
     width: 7px;
     height: 7px;
+    border: 1px solid var(--soft);
     border-radius: 50%;
-    background: currentColor;
+    background: var(--dash);
     content: "";
   }}
-  .interval-line::before {{ top: -1px; color: var(--launch); }}
-  .interval-line::after {{ bottom: -1px; color: var(--hundred); }}
+  .interval-line::before {{ top: -1px; }}
+  .interval-line::after {{ bottom: -1px; }}
   .interval-copy {{ display: grid; gap: 3px; }}
   .interval-copy span {{ color: var(--muted); font-size: 12.5px; font-weight: 500; }}
   #elapsed {{ font: 620 23px/1 var(--font-display); font-variant-numeric: tabular-nums; }}
   .panel-actions {{ display: grid; gap: 7px; margin-top: auto; padding-top: 10px; }}
   #finish {{
     min-height: 50px;
-    border-color: var(--hundred);
-    background: var(--hundred);
-    color: #160b08;
     font-size: 14px;
   }}
+  #finish:not(:disabled) {{
+    border-color: var(--ivory);
+    background: var(--ivory);
+    color: var(--carbon);
+  }}
+  #finish:not(:disabled):hover {{ background: #fff; }}
   #hint, #status {{
     margin: 0;
     color: var(--muted);
@@ -470,7 +475,7 @@ def render_picker_html(video_name: str) -> str:
     line-height: 1.45;
   }}
   #hint {{ margin-top: 8px; }}
-  #status {{ min-height: 16px; color: var(--hundred); }}
+  #status {{ min-height: 16px; color: var(--ivory); }}
   #filmstrip {{
     width: 100%;
     display: flex;
@@ -479,7 +484,7 @@ def render_picker_html(video_name: str) -> str:
     padding: 8px 14px 11px;
     border-top: 1px solid var(--etched);
     background: var(--dash);
-    scrollbar-color: #4a5562 var(--dash);
+    scrollbar-color: #4b5055 var(--dash);
   }}
   #filmstrip button {{
     position: relative;
@@ -493,8 +498,8 @@ def render_picker_html(video_name: str) -> str:
     opacity: .54;
   }}
   #filmstrip button.selected {{ border-color: var(--ivory); opacity: 1; }}
-  #filmstrip button.launch-mark {{ box-shadow: inset 0 4px var(--launch); }}
-  #filmstrip button.hundred-mark {{ box-shadow: inset 0 4px var(--hundred); }}
+  #filmstrip button.launch-mark {{ box-shadow: inset 0 3px var(--soft); }}
+  #filmstrip button.hundred-mark {{ box-shadow: inset 0 -3px var(--ivory); }}
   #filmstrip img {{ display: block; height: 94px; width: auto; }}
   #filmstrip span {{
     position: absolute;
@@ -511,10 +516,14 @@ def render_picker_html(video_name: str) -> str:
     min-height: 100vh;
     place-items: center;
     padding: 30px;
-    color: var(--success);
-    font: 620 clamp(24px, 5vw, 48px)/1.2 var(--font-display);
     text-align: center;
   }}
+  .done-copy {{ display: grid; gap: 9px; }}
+  .done-copy strong {{
+    color: var(--ivory);
+    font: 600 clamp(28px, 4vw, 44px)/1.1 var(--font-display);
+  }}
+  .done-copy span {{ color: var(--muted); font-size: 14px; }}
   @media (max-width: 900px) {{
     body {{ height: auto; min-height: 100vh; overflow: auto; }}
     header {{ align-items: flex-start; flex-direction: column; gap: 4px; }}
@@ -837,7 +846,7 @@ def render_picker_html(video_name: str) -> str:
       }});
       if (!response.ok) throw new Error("The marks were not accepted.");
       finished = true;
-      document.body.innerHTML = '<div class="done">Done. Back to the terminal.</div>';
+      document.body.innerHTML = '<div class="done"><div class="done-copy"><strong>Frames saved</strong><span>You can return to the terminal.</span></div></div>';
     }} catch (error) {{
       statusEl.textContent = "Could not send the marks. Press Finish to try again.";
       updateFinish();
@@ -1214,6 +1223,8 @@ class _PickerServer:
         elif path == "/times":
             payload = json.dumps(self.times, separators=(",", ":")).encode("utf-8")
             self._send_bytes(handler, 200, payload, "application/json")
+        elif path == "/font":
+            self._send_bytes(handler, 200, _MANROPE_FONT.read_bytes(), "font/ttf")
         elif path == "/video":
             self._serve_video(handler)
         elif path.startswith("/thumbs/"):

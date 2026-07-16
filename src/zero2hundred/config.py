@@ -38,7 +38,7 @@ class RenderSettings:
     margin_ratio: float = 0.04
     text_color: str = "white"
     border_color: str = "black"
-    border_width: int = 2
+    border_width: int = 1
     video_encoder: str = "libx264"
     crf: int = 18
     preset: str = "medium"

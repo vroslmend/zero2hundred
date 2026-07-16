@@ -144,7 +144,7 @@ font_size_ratio = 0.065
 margin_ratio = 0.04
 text_color = "white"
 border_color = "black"
-border_width = 2
+border_width = 1
 video_encoder = "libx264"
 crf = 18
 preset = "medium"
@@ -153,8 +153,8 @@ audio_bitrate = "192k"
 
 The default `type-only` overlay keeps the timer centered and clear of common
 short-form video controls. `quiet-plate` adds a subtle dark panel, while
-`compact` puts the label and timer on one line. Manrope is bundled with the
-tool, so the default design looks the same on every system.
+`compact` puts the label and timer on one line. Manrope Medium is bundled with
+the tool, so the default design looks the same on every system.
 
 ## A note on the numbers
 

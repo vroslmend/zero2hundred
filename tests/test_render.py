@@ -30,7 +30,7 @@ class RenderGraphTests(unittest.TestCase):
         self.assertIn("fps=fps=30.000000", graph)
         self.assertNotIn("enable=", graph)
         self.assertNotIn("drawbox=", graph)
-        self.assertIn("Manrope-Variable.ttf", graph)
+        self.assertIn("Manrope-Medium.ttf", graph)
         self.assertIn("0–100 km/h", graph)
         self.assertIn("y=h-text_h-h*0.160000", graph)
         self.assertIn("text='s'", graph)

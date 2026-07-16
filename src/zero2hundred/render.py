@@ -13,7 +13,7 @@ from zero2hundred.media import MediaInfo, Toolchain
 
 
 ProgressCallback = Callable[[float], None]
-_MANROPE_FONT = Path(__file__).with_name("assets") / "Manrope-Variable.ttf"
+_MANROPE_FONT = Path(__file__).with_name("assets") / "Manrope-Medium.ttf"
 
 
 @dataclass(frozen=True, slots=True)
@@ -470,9 +470,9 @@ def _drawtext_filter(
         f"fontcolor={_normalized_color(color)}",
         f"bordercolor={_normalized_color(settings.border_color)}",
         f"borderw={border_width}",
-        "shadowcolor=black@0.850000",
-        "shadowx=2",
-        "shadowy=3",
+        "shadowcolor=black@0.650000",
+        "shadowx=1",
+        "shadowy=2",
         f"x={x}",
         f"y={y}",
     ]
