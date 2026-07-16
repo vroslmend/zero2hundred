@@ -743,6 +743,12 @@ def render_calibration_html(video_name: str) -> str:
     timeEl.textContent = times[selected].toFixed(3);
   }}
 
+  function syncSelected() {{
+    if (!times.length) return;
+    selected = nearestIndex(video.currentTime);
+    timeEl.textContent = times[selected].toFixed(3);
+  }}
+
   function sizeCanvas() {{
     const rect = video.getBoundingClientRect();
     const scale = window.devicePixelRatio || 1;
@@ -794,8 +800,9 @@ def render_calibration_html(video_name: str) -> str:
   }}
 
   canvas.addEventListener("click", function (event) {{
-    if (!times.length || points.length === 3) return;
+    if (!times.length || points.length === 3 || video.seeking) return;
     video.pause();
+    syncSelected();
     const rect = canvas.getBoundingClientRect();
     const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
     const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
@@ -815,10 +822,14 @@ def render_calibration_html(video_name: str) -> str:
   video.addEventListener("loadedmetadata", sizeCanvas);
   video.addEventListener("resize", sizeCanvas);
   window.addEventListener("resize", sizeCanvas);
-  video.addEventListener("seeked", function () {{
-    if (!times.length) return;
-    selected = nearestIndex(video.currentTime);
-    timeEl.textContent = times[selected].toFixed(3);
+  video.addEventListener("seeked", syncSelected);
+  // Playback moves the video without seek events. Keep the selected frame
+  // following it so a click after pausing stamps the frame on screen, not
+  // the frame from before playback started.
+  video.addEventListener("pause", syncSelected);
+  video.addEventListener("timeupdate", function () {{
+    if (video.paused) return;
+    syncSelected();
   }});
 
   document.addEventListener("keydown", function (event) {{

@@ -234,6 +234,13 @@ class RenderCalibrationHtmlTests(unittest.TestCase):
         self.assertNotIn('<script class="bad">.mp4', text)
         self.assertIn("&lt;script class=&quot;bad&quot;&gt;.mp4", text)
 
+    def test_tracks_playback_so_clicks_stamp_the_visible_frame(self) -> None:
+        text = render_calibration_html("sample_video.mp4")
+
+        self.assertIn('video.addEventListener("pause", syncSelected)', text)
+        self.assertIn('video.addEventListener("timeupdate"', text)
+        self.assertIn("video.seeking", text)
+
 
 class PickerServerIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
