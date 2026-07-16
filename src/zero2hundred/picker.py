@@ -457,6 +457,7 @@ def render_picker_html(video_name: str) -> str:
     padding: 16px;
     border: 1px solid var(--etched);
     background: var(--dash);
+    overflow-y: auto;
   }}
   .panel-heading {{
     display: flex;
@@ -603,6 +604,11 @@ def render_picker_html(video_name: str) -> str:
     .transport {{ grid-template-columns: 1fr; }}
     .transport-buttons {{ justify-content: space-between; }}
     .transport-buttons button {{ min-width: 40px; }}
+  }}
+  @media (max-height: 760px) {{
+    body {{ height: auto; min-height: 100vh; overflow: auto; }}
+    #picker {{ height: auto; }}
+    .stage {{ min-height: 320px; }}
   }}
   @media (prefers-reduced-motion: reduce) {{
     * {{ scroll-behavior: auto !important; }}
