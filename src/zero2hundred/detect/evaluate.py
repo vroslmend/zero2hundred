@@ -239,5 +239,14 @@ def _nearest_index(times: Sequence[float], value: float) -> int:
     return index if (after - value) < (value - before) else index - 1
 
 
+def _register_builtin_detectors() -> None:
+    from zero2hundred.detect.launch import suggest_launch
+
+    register_detector("launch", suggest_launch)
+
+
+_register_builtin_detectors()
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
