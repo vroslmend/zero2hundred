@@ -6,7 +6,6 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-import webbrowser
 
 from zero2hundred import __version__
 from zero2hundred.config import POSITIONS, load_settings
@@ -15,7 +14,7 @@ from zero2hundred.events import EventWindow
 from zero2hundred.frames import frame_after, frame_times, snap_to_frame
 from zero2hundred.media import Toolchain, find_toolchain, probe_video
 from zero2hundred.paths import available_output_path, default_output_path, parse_dropped_path
-from zero2hundred.picker import build_picker
+from zero2hundred.picker import serve_picker
 from zero2hundred.render import RenderJob
 from zero2hundred.timecode import format_timecode, parse_timecode
 
@@ -68,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Warning: could not read frame timestamps: {exc}", file=sys.stderr)
             times = None
 
+        picker_marks: tuple[float, float] | None = None
         if args.pick:
             if times is None:
                 print(
@@ -75,10 +75,16 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
             else:
-                _open_picker(input_path, toolchain, times)
+                picker_marks = _pick_frames(input_path, toolchain, times)
 
-        launch = _time_value(args.start, "Launch timestamp")
-        reached_100 = _time_value(args.end, "100 km/h timestamp")
+        if args.start is not None or picker_marks is None:
+            launch = _time_value(args.start, "Launch timestamp")
+        else:
+            launch = picker_marks[0]
+        if args.end is not None or picker_marks is None:
+            reached_100 = _time_value(args.end, "100 km/h timestamp")
+        else:
+            reached_100 = picker_marks[1]
         events = EventWindow(launch=launch, reached_100=reached_100).validate(media.duration)
 
         clip_end: float | None = None
@@ -167,18 +173,19 @@ def _time_value(argument: str | None, label: str) -> float:
     return parse_timecode(raw)
 
 
-def _open_picker(input_path: Path, toolchain: Toolchain, times: list[float]) -> None:
-    workdir = Path(tempfile.mkdtemp(prefix="zero2hundred_pick_"))
-    try:
-        html_path = build_picker(input_path, toolchain, times, workdir)
-    except Zero2HundredError as exc:
-        print(f"Warning: could not build frame picker: {exc}", file=sys.stderr)
-        return
-    webbrowser.open(html_path.as_uri())
+def _pick_frames(
+    input_path: Path, toolchain: Toolchain, times: list[float]
+) -> tuple[float, float] | None:
     print(
-        f"Frame picker opened in your browser ({html_path}). "
-        "Copy the launch and 100 km/h times, then enter them below."
+        "Pick the frames in your browser. "
+        "The run continues when you press Finish."
     )
+    try:
+        with tempfile.TemporaryDirectory(prefix="zero2hundred_pick_") as tempdir:
+            return serve_picker(input_path, toolchain, times, Path(tempdir))
+    except (Zero2HundredError, OSError) as exc:
+        print(f"Warning: frame picker unavailable: {exc}", file=sys.stderr)
+        return None
 
 
 class _ProgressReporter:
@@ -199,4 +206,3 @@ class _ProgressReporter:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
