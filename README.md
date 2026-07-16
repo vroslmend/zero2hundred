@@ -12,8 +12,23 @@ recordings cut exactly where you picked.
 
 ## Requirements
 
-- Python 3.11 or newer
-- FFmpeg and FFprobe on `PATH`
+- Python 3.11 or newer, from [python.org](https://www.python.org/downloads/) or the Microsoft Store
+- FFmpeg (FFprobe comes with it)
+
+If you don't have FFmpeg yet:
+
+```powershell
+winget install ffmpeg      # Windows
+```
+
+```bash
+sudo apt install ffmpeg    # Debian/Ubuntu
+brew install ffmpeg        # macOS
+```
+
+Open a new terminal afterwards and check that `ffmpeg -version` and
+`python --version` both print something. If FFmpeg is missing the tool will
+tell you at startup instead of failing halfway through.
 
 ## Install
 
@@ -21,10 +36,11 @@ recordings cut exactly where you picked.
 python -m pip install git+https://github.com/vroslmend/zero2hundred.git
 ```
 
-Or from a clone of this repo:
+That needs git on your machine. If you don't have git either, pip can install
+straight from the zip:
 
 ```powershell
-python -m pip install .
+python -m pip install https://github.com/vroslmend/zero2hundred/archive/refs/heads/main.zip
 ```
 
 ## Usage
@@ -42,12 +58,16 @@ If you don't know the exact frames, use the picker:
 zero2hundred "D:\Videos\run.mp4" --pick
 ```
 
-It opens a page in your browser with every frame of the video. Arrow keys move
-one frame, Shift+arrows move ten. Step to the launch frame, copy its
-timestamp, do the same for the 100 km/h frame, then paste both back in the
-terminal.
+That opens a page in your browser with every frame of the video:
 
-The output lands next to the input as `run_0-100.mp4`.
+1. Arrow keys move one frame, Shift+arrows move ten.
+2. Step to the launch frame and press Copy time.
+3. Paste it in the terminal at the launch prompt.
+4. Do the same for the frame where the needle hits 100.
+5. It renders and saves `run_0-100.mp4` next to the original.
+
+Your times get snapped to exact frames automatically, so being a fraction of
+a second off when typing is fine.
 
 All options:
 
