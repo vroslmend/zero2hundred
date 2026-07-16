@@ -23,6 +23,9 @@ from zero2hundred.media import MediaInfo
 
 
 Point = tuple[float, float]
+# Sampling at native resolution (2160) was measured on the labeled runs and
+# changed nothing on the failing video while costing 4x the runtime, so the
+# bottleneck is dial-feature confusion, not resolution.
 MAX_HEIGHT = 960
 MINIMUM_FEATURE_MATCHES = 8
 MINIMUM_HALF_SIZE = 60
@@ -452,6 +455,11 @@ def _angle_delta(start: float, end: float) -> float:
 
 
 def _pixel_point(point: Point, width: int, height: int) -> "np.ndarray":
+    # OpenCV sampling puts integer coordinates at pixel centers, so the
+    # exact conversion would subtract half a pixel. The tracking thresholds
+    # below were tuned with this uncorrected form and a lone half-pixel
+    # shift measurably moves crossings, so keep the convention until the
+    # thresholds are re-derived.
     return np.array((point[0] * width, point[1] * height), dtype=np.float64)
 
 
