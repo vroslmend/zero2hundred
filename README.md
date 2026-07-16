@@ -18,7 +18,13 @@ recordings cut exactly where you picked.
 ## Install
 
 ```powershell
-python -m pip install -e .
+python -m pip install git+https://github.com/vroslmend/zero2hundred.git
+```
+
+Or from a clone of this repo:
+
+```powershell
+python -m pip install .
 ```
 
 ## Usage
