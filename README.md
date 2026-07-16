@@ -43,11 +43,22 @@ straight from the zip:
 python -m pip install https://github.com/vroslmend/zero2hundred/archive/refs/heads/main.zip
 ```
 
+Use `python3` instead of `python` on systems where that is the Python command.
+If `zero2hundred` is not found after installation, you can always run the tool
+through Python:
+
+```powershell
+python -m zero2hundred --help
+```
+
 ## Usage
 
 ```powershell
 zero2hundred "D:\Videos\run.mp4" --start 1.395 --end 10.193
 ```
+
+On Windows, `zero2hundred.exe` runs the same command, but the `.exe` suffix is
+not needed.
 
 Run it with no arguments and it will ask for everything. On Windows you can
 drag the video from Explorer straight into the terminal.
@@ -58,7 +69,12 @@ If you don't know the exact frames, use the picker:
 zero2hundred "D:\Videos\run.mp4" --pick
 ```
 
-That opens the picker in your browser:
+The picker runs only on your computer at `127.0.0.1`. The video and frame
+timestamps are not uploaded anywhere. Some phone videos use a format that the
+browser cannot play directly. In that case, the tool prepares a temporary
+full-resolution browser-compatible copy before opening the picker.
+
+Once the picker opens:
 
 1. Play or pause the video to get close to the launch.
 2. Use the arrow keys to step to the exact frame. Shift+arrows move ten frames.
@@ -69,14 +85,28 @@ That opens the picker in your browser:
 7. Go back to the terminal. It renders automatically and saves
    `run_0-100.mp4` next to the original.
 
+Closing the picker tab before pressing Finish cancels the run. You can also
+press Ctrl+C in the terminal to cancel. The local server and temporary picker
+files are cleaned up in both cases.
+
+To inspect the FFmpeg command without creating an output video, add
+`--dry-run`:
+
+```powershell
+zero2hundred "D:\Videos\run.mp4" --pick --dry-run
+```
+
 Your times get snapped to exact frames automatically, so being a fraction of
 a second off when typing is fine.
 
 All options:
 
 ```text
+input                  Video to process
+--start TIME           Launch timestamp
+--end TIME             100 km/h timestamp
 --pick                 Mark exact frames in the browser
---output PATH          Where to save the result
+-o, --output PATH      Where to save the result
 --freeze SECONDS       How long the final frame holds
 --position POSITION    top-left, top-center, top-right,
                        bottom-left, bottom-center, bottom-right
@@ -86,6 +116,8 @@ All options:
 --config PATH          Load defaults from a TOML file
 --overwrite            Replace an existing output file
 --dry-run              Print the FFmpeg command instead of running it
+--version              Print the installed version
+-h, --help             Show command help
 ```
 
 Times can be written as `4.267`, `00:04.267`, or `00:00:04.267`.
@@ -118,6 +150,10 @@ want real numbers, get a GPS box like a Dragy. This is for the video.
 
 ## Tests
 
+From a cloned repository, install it in editable mode once and then run the
+test suite:
+
 ```powershell
+python -m pip install -e .
 python -m unittest discover -s tests
 ```
