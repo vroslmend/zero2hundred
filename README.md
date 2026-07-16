@@ -379,7 +379,7 @@ python -m unittest discover -s tests
 
 ## Author
 
-Made by Ammar Hassan — [github.com/vroslmend](https://github.com/vroslmend).
+Made by Ammar Hassan.
 
 ## License
 
