@@ -1,10 +1,11 @@
 # zero2hundred
 
-Command line tool that turns dashboard footage into a finished 0-100 km/h
-clip. Give it the launch and 100 km/h timestamps and it overlays a stopwatch
-counting up in big MM:SS:cc digits (00:08:79 style), cuts the video at the
-frame the speedometer hits 100, and holds that frame for two seconds so the
-time stays on screen. Audio is kept and the source file is never touched.
+Command line tool for choosing exact launch and 100 km/h frames from dashboard
+footage, then turning them into a finished timed clip. Its local browser picker
+shows the full-resolution video with frame stepping, exact timestamps, and a
+live elapsed result. The finished video gets a compact stopwatch plate, cuts on
+the selected 100 km/h frame, and holds that result for two seconds. Audio is
+kept and the source file is never touched.
 
 Phone footage works as-is. Portrait videos keep their orientation, and the
 timestamps you enter get snapped to real frames, so variable frame rate
@@ -76,13 +77,15 @@ full-resolution browser-compatible copy before opening the picker.
 
 Once the picker opens:
 
-1. Play or pause the video to get close to the launch.
-2. Use the arrow keys to step to the exact frame. Shift+arrows move ten frames.
+1. Play or pause the video to get close to the launch area.
+2. Use the arrow keys or the frame controls to find the exact frame. Hold an
+   arrow to inspect consecutive frames. Shift+arrows move ten frames at a time.
 3. Press L to mark the launch.
-4. Play or step to the frame where the needle hits 100.
+4. Play or step to the exact frame where the speedometer reaches 100.
 5. Press H to mark 100 km/h.
-6. Press Finish.
-7. Go back to the terminal. It renders automatically and saves
+6. Check the elapsed result. You can jump back to either mark and replace it.
+7. Press Use these frames.
+8. Go back to the terminal. It renders automatically and saves
    `run_0-100.mp4` next to the original.
 
 Closing the picker tab before pressing Finish cancels the run. You can also
@@ -130,6 +133,9 @@ Anything you pass on the command line wins over the TOML file:
 freeze_duration = 2.0
 position = "bottom-center"
 timer_style = "stopwatch"   # "hms" gives HH:MM:SS.mmm instead
+timer_label = "0-100 KM/H"
+panel_color = "black@0.62"
+accent_color = "0xFF6B4A@0.95"
 font = "Arial"
 font_size_ratio = 0.065
 margin_ratio = 0.04

@@ -134,29 +134,32 @@ def build_filter_graph(
     timer_start = 0.0 if trim_intro else events.launch
     trim_end = _resolve_clip_end(media, events, clip_end)
 
-    x, y = _position(settings.position, settings.margin_ratio)
     timer = _timer_text(timer_start, events.elapsed, settings.timer_style)
     font_option = (
         f"fontfile='{_escape_filter_value(settings.font_file)}'"
         if settings.font_file
         else f"font='{_escape_filter_value(settings.font)}'"
     )
-    drawtext_options = [
-        font_option,
-        f"text='{timer}'",
-        f"fontsize=h*{settings.font_size_ratio:.6f}",
-        f"fontcolor={settings.text_color}",
-        f"bordercolor={settings.border_color}",
-        f"borderw={settings.border_width}",
-        f"x={x}",
-        f"y={y}",
-    ]
-    if settings.timer_style == "hms":
+    if settings.timer_style == "stopwatch":
+        video_filters = _stopwatch_filters(settings, font_option, timer)
+    else:
+        x, y = _position(settings.position, settings.margin_ratio)
+        drawtext_options = [
+            font_option,
+            f"text='{timer}'",
+            f"fontsize=h*{settings.font_size_ratio:.6f}",
+            f"fontcolor={settings.text_color}",
+            f"bordercolor={settings.border_color}",
+            f"borderw={settings.border_width}",
+            f"x={x}",
+            f"y={y}",
+        ]
         drawtext_options.append(f"enable='gte(t,{timer_start:.6f})'")
-    drawtext = "drawtext=" + ":".join(drawtext_options)
+        video_filters = ["drawtext=" + ":".join(drawtext_options)]
     video_chain = (
         f"[0:v]trim=start={clip_start:.6f}:end={trim_end:.6f},"
-        f"setpts=PTS-STARTPTS,fps=fps={media.frame_rate:.6f},{drawtext},"
+        f"setpts=PTS-STARTPTS,fps=fps={media.frame_rate:.6f},"
+        f"{','.join(video_filters)},"
         f"tpad=stop_mode=clone:stop_duration={settings.freeze_duration:.6f}[video]"
     )
 
@@ -200,6 +203,119 @@ def _position(position: str, margin: float) -> tuple[str, str]:
         "bottom-center": (center, bottom),
     }
     return positions[position]
+
+
+def _stopwatch_filters(
+    settings: RenderSettings,
+    font_option: str,
+    timer: str,
+) -> list[str]:
+    panel_width = settings.font_size_ratio * 5.2 + 0.06
+    panel_height = settings.font_size_ratio + 0.065
+    panel_x, panel_y = _box_position(
+        settings.position,
+        settings.margin_ratio,
+        panel_width,
+        panel_height,
+    )
+    drawbox_x, drawbox_y = _drawbox_position(
+        settings.position,
+        settings.margin_ratio,
+        panel_width,
+        panel_height,
+    )
+    panel_color = _normalized_color(settings.panel_color)
+    accent_color = _normalized_color(settings.accent_color)
+    timer_x = f"{panel_x}+h*0.025000"
+    timer_y = f"{panel_y}+h*0.047000"
+    label_x = f"{panel_x}+h*0.025000"
+    label_y = f"{panel_y}+h*0.015000"
+    label_size = max(0.012, settings.font_size_ratio * 0.24)
+
+    timer_options = [
+        font_option,
+        f"text='{timer}'",
+        f"fontsize=h*{settings.font_size_ratio:.6f}",
+        f"fontcolor={settings.text_color}",
+        f"bordercolor={settings.border_color}",
+        f"borderw={settings.border_width}",
+        f"x={timer_x}",
+        f"y={timer_y}",
+    ]
+    label_options = [
+        font_option,
+        f"text='{_escape_filter_value(settings.timer_label)}'",
+        f"fontsize=h*{label_size:.6f}",
+        f"fontcolor={accent_color}",
+        f"x={label_x}",
+        f"y={label_y}",
+    ]
+    return [
+        (
+            f"drawbox=x={drawbox_x}:y={drawbox_y}:w=ih*{panel_width:.6f}:"
+            f"h=ih*{panel_height:.6f}:color={panel_color}:t=fill"
+        ),
+        (
+            f"drawbox=x={drawbox_x}:y={drawbox_y}:w=ih*0.006000:"
+            f"h=ih*{panel_height:.6f}:color={accent_color}:t=fill"
+        ),
+        "drawtext=" + ":".join(label_options),
+        "drawtext=" + ":".join(timer_options),
+    ]
+
+
+def _box_position(
+    position: str,
+    margin: float,
+    width: float,
+    height: float,
+) -> tuple[str, str]:
+    left = f"w*{margin:.6f}"
+    right = f"w-h*{width:.6f}-w*{margin:.6f}"
+    center = f"(w-h*{width:.6f})/2"
+    top = f"h*{margin:.6f}"
+    bottom = f"h-h*{height:.6f}-h*{margin:.6f}"
+    positions = {
+        "top-left": (left, top),
+        "top-right": (right, top),
+        "top-center": (center, top),
+        "bottom-left": (left, bottom),
+        "bottom-right": (right, bottom),
+        "bottom-center": (center, bottom),
+    }
+    return positions[position]
+
+
+def _drawbox_position(
+    position: str,
+    margin: float,
+    width: float,
+    height: float,
+) -> tuple[str, str]:
+    left = f"iw*{margin:.6f}"
+    right = f"iw-ih*{width:.6f}-iw*{margin:.6f}"
+    center = f"(iw-ih*{width:.6f})/2"
+    top = f"ih*{margin:.6f}"
+    bottom = f"ih-ih*{height:.6f}-ih*{margin:.6f}"
+    positions = {
+        "top-left": (left, top),
+        "top-right": (right, top),
+        "top-center": (center, top),
+        "bottom-left": (left, bottom),
+        "bottom-right": (right, bottom),
+        "bottom-center": (center, bottom),
+    }
+    return positions[position]
+
+
+def _normalized_color(value: str) -> str:
+    color, separator, alpha = value.partition("@")
+    if not separator:
+        return value
+    try:
+        return f"{color}@{float(alpha):.6f}"
+    except ValueError:
+        return value
 
 
 def _escape_filter_value(value: str) -> str:

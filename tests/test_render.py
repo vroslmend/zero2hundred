@@ -29,7 +29,12 @@ class RenderGraphTests(unittest.TestCase):
         self.assertIn("trim=start=0.000000", graph)
         self.assertIn("fps=fps=30.000000", graph)
         self.assertNotIn("enable=", graph)
-        self.assertIn(r"x=(w-text_w)/2", graph)
+        self.assertIn("drawbox=", graph)
+        self.assertIn(r"drawbox=x=(iw-ih*0.398000)/2", graph)
+        self.assertIn("0-100 KM/H", graph)
+        self.assertIn("color=black@0.620000", graph)
+        self.assertIn("color=0xFF6B4A@0.950000", graph)
+        self.assertIn(r"x=(w-h*0.398000)/2+h*0.025000", graph)
         self.assertIn(
             r"%{eif\:trunc(min(max(t-4.000000\,0)\,6.000000)/60)\:d\:2}\:"
             r"%{eif\:trunc(mod(min(max(t-4.000000\,0)\,6.000000)\,60))\:d\:2}\:"
@@ -48,6 +53,7 @@ class RenderGraphTests(unittest.TestCase):
         )
         self.assertIn(r"%{pts\:hms\:-4.000000}", graph)
         self.assertIn("enable='gte(t,4.000000)'", graph)
+        self.assertNotIn("drawbox=", graph)
 
     def test_trim_intro_resets_timer(self) -> None:
         graph = build_filter_graph(

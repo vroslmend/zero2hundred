@@ -9,6 +9,9 @@ from zero2hundred.errors import ConfigurationError
 class ConfigTests(unittest.TestCase):
     def test_defaults_are_valid(self) -> None:
         self.assertEqual(load_settings(None), RenderSettings())
+        self.assertEqual(RenderSettings().timer_label, "0-100 KM/H")
+        self.assertEqual(RenderSettings().panel_color, "black@0.62")
+        self.assertEqual(RenderSettings().accent_color, "0xFF6B4A@0.95")
 
     def test_loads_render_table(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -46,4 +49,3 @@ class ConfigTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

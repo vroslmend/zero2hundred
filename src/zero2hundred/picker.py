@@ -205,27 +205,34 @@ def render_picker_html(video_name: str) -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
 <title>Frame picker | {safe_name}</title>
 <style>
   :root {{
     color-scheme: dark;
-    --ink: #080a0d;
-    --panel: #11151a;
-    --raised: #191f26;
-    --line: #303945;
-    --text: #eef1f4;
-    --muted: #98a2ad;
-    --accent: #f1ad3d;
-    --accent-dark: #3a2a12;
-    --success: #76c893;
+    --carbon: #090b0c;
+    --dash: #13171a;
+    --raised: #1a2024;
+    --etched: #2b3338;
+    --ivory: #f4f1e8;
+    --muted: #8d989f;
+    --launch: #72b8d2;
+    --launch-dark: #142b34;
+    --hundred: #ff6b4a;
+    --hundred-dark: #351b16;
+    --success: #94c7a4;
   }}
   * {{ box-sizing: border-box; }}
   body {{
     margin: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    height: 100vh;
     min-height: 100vh;
-    background: var(--ink);
-    color: var(--text);
-    font-family: "Segoe UI", Arial, sans-serif;
+    overflow: hidden;
+    background: var(--carbon);
+    color: var(--ivory);
+    font-family: Bahnschrift, "Arial Narrow", "Segoe UI", sans-serif;
   }}
   button, video {{ -webkit-tap-highlight-color: transparent; }}
   header {{
@@ -234,8 +241,8 @@ def render_picker_html(video_name: str) -> str:
     justify-content: space-between;
     gap: 18px;
     padding: 14px 20px;
-    border-bottom: 1px solid var(--line);
-    background: var(--panel);
+    border-bottom: 1px solid var(--etched);
+    background: var(--dash);
   }}
   h1 {{
     margin: 0;
@@ -254,64 +261,87 @@ def render_picker_html(video_name: str) -> str:
     letter-spacing: .08em;
     text-transform: uppercase;
   }}
-  main {{
-    display: grid;
-    justify-items: center;
-    gap: 14px;
-    padding: 18px 20px 0;
-  }}
+  main {{ min-height: 0; }}
   .stage {{
     display: grid;
     width: 100%;
-    min-height: 220px;
+    min-width: 0;
+    min-height: 240px;
+    overflow: hidden;
+    border: 1px solid var(--etched);
+    background: #000;
     place-items: center;
   }}
   video {{
     display: block;
     width: auto;
     max-width: 100%;
-    max-height: 72vh;
+    max-height: 100%;
     background: #000;
-    box-shadow: 0 0 0 1px var(--line), 0 18px 55px rgba(0, 0, 0, .45);
+    box-shadow: 0 18px 55px rgba(0, 0, 0, .45);
   }}
-  .readout {{
-    display: flex;
-    align-items: baseline;
+  #picker {{
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 290px;
+    gap: 14px;
+    height: 100%;
+    padding: 14px;
+  }}
+  .viewer {{
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr) auto;
     gap: 10px;
   }}
+  .transport {{
+    display: grid;
+    grid-template-columns: minmax(170px, 1fr) auto;
+    align-items: center;
+    gap: 12px 20px;
+    min-height: 94px;
+    padding: 12px 14px;
+    border: 1px solid var(--etched);
+    background: var(--dash);
+  }}
+  .transport-data {{ display: grid; gap: 6px; }}
+  .readout {{ display: flex; align-items: baseline; gap: 9px; }}
   #time {{
     font-family: Consolas, "SFMono-Regular", Menlo, monospace;
-    font-size: clamp(42px, 7vw, 72px);
+    font-size: clamp(32px, 4.1vw, 54px);
     font-variant-numeric: tabular-nums;
     font-weight: 700;
-    letter-spacing: -.05em;
-    line-height: .95;
+    letter-spacing: -.045em;
+    line-height: .9;
   }}
-  .unit {{
+  .unit, #frameCount {{
     color: var(--muted);
     font-family: Consolas, "SFMono-Regular", monospace;
-    font-size: 12px;
-    letter-spacing: .08em;
+    font-size: 11px;
+    letter-spacing: .07em;
+    text-transform: uppercase;
   }}
-  .marks {{
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 8px;
-  }}
+  .transport-buttons {{ display: flex; align-items: center; gap: 5px; }}
   button {{
     min-height: 42px;
-    border: 1px solid var(--line);
-    border-radius: 4px;
+    border: 1px solid var(--etched);
+    border-radius: 3px;
     padding: 8px 12px;
     background: var(--raised);
-    color: var(--text);
-    font: 600 14px/1 "Segoe UI", Arial, sans-serif;
+    color: var(--ivory);
+    font: 650 13px/1 Bahnschrift, "Arial Narrow", "Segoe UI", sans-serif;
     cursor: pointer;
   }}
-  button:hover {{ border-color: #596675; }}
-  button:focus-visible {{ outline: 2px solid var(--accent); outline-offset: 2px; }}
+  button:hover {{ border-color: #59646b; background: #20272b; }}
+  button:focus-visible {{ outline: 2px solid var(--ivory); outline-offset: 2px; }}
   button:disabled {{ cursor: not-allowed; opacity: .42; }}
+  .transport-buttons button {{
+    min-width: 44px;
+    padding-inline: 10px;
+    font-family: Consolas, "SFMono-Regular", monospace;
+    font-size: 15px;
+  }}
+  #playPause {{ min-width: 88px; color: var(--ivory); }}
   button kbd {{
     display: inline-grid;
     min-width: 22px;
@@ -324,39 +354,106 @@ def render_picker_html(video_name: str) -> str:
     color: var(--muted);
     font: 11px Consolas, monospace;
   }}
-  .chip {{
-    display: inline-block;
-    min-width: 72px;
-    margin-left: 10px;
-    border-radius: 999px;
-    padding: 5px 8px;
-    background: #0d1014;
+  .key-hint {{
+    grid-column: 1 / -1;
+    margin: 0;
     color: var(--muted);
-    font: 12px Consolas, monospace;
+    font: 11px/1.4 Consolas, "SFMono-Regular", monospace;
+  }}
+  .timing-panel {{
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    padding: 16px;
+    border: 1px solid var(--etched);
+    background: var(--dash);
+  }}
+  .panel-heading {{
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--etched);
+  }}
+  .panel-heading strong {{ font-size: 15px; letter-spacing: .02em; }}
+  .panel-heading span {{ color: var(--muted); font: 10px Consolas, monospace; text-transform: uppercase; }}
+  .endpoint {{ display: grid; gap: 7px; padding: 12px 0; }}
+  .mark-control {{
+    display: grid;
+    min-height: 68px;
+    grid-template-columns: 1fr;
+    gap: 9px;
+    align-content: center;
+    text-align: left;
+  }}
+  .mark-label {{ display: flex; align-items: center; font-size: 14px; }}
+  .mark-value {{
+    color: var(--muted);
+    font: 700 20px Consolas, "SFMono-Regular", monospace;
     font-variant-numeric: tabular-nums;
   }}
-  .marked .chip {{ background: var(--accent-dark); color: var(--accent); }}
+  .launch-endpoint .mark-control {{ border-left: 3px solid var(--launch); }}
+  .launch-endpoint .mark-control.marked {{ background: var(--launch-dark); }}
+  .launch-endpoint .marked .mark-value {{ color: var(--launch); }}
+  .hundred-endpoint .mark-control {{ border-left: 3px solid var(--hundred); }}
+  .hundred-endpoint .mark-control.marked {{ background: var(--hundred-dark); }}
+  .hundred-endpoint .marked .mark-value {{ color: var(--hundred); }}
+  .jump {{ min-height: 32px; padding: 6px 10px; color: var(--muted); font-size: 11px; }}
+  .interval {{
+    display: grid;
+    grid-template-columns: 16px 1fr;
+    align-items: center;
+    gap: 10px;
+    min-height: 58px;
+    padding: 0 4px;
+  }}
+  .interval-line {{
+    position: relative;
+    width: 1px;
+    height: 48px;
+    justify-self: center;
+    background: linear-gradient(var(--launch), var(--hundred));
+  }}
+  .interval-line::before, .interval-line::after {{
+    position: absolute;
+    left: -3px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    content: "";
+  }}
+  .interval-line::before {{ top: -1px; color: var(--launch); }}
+  .interval-line::after {{ bottom: -1px; color: var(--hundred); }}
+  .interval-copy {{ display: grid; gap: 3px; }}
+  .interval-copy span {{ color: var(--muted); font-size: 11px; text-transform: uppercase; }}
+  #elapsed {{ font: 700 24px Consolas, monospace; font-variant-numeric: tabular-nums; }}
+  .panel-actions {{ display: grid; gap: 7px; margin-top: auto; padding-top: 10px; }}
   #finish {{
-    border-color: var(--accent);
-    background: var(--accent);
-    color: #171006;
+    min-height: 50px;
+    border-color: var(--hundred);
+    background: var(--hundred);
+    color: #160b08;
+    font-size: 14px;
   }}
   #hint, #status {{
     margin: 0;
     color: var(--muted);
-    font-size: 12px;
-    text-align: center;
+    font-size: 11px;
+    line-height: 1.45;
   }}
-  #status {{ min-height: 16px; color: var(--success); }}
+  #hint {{ margin-top: 8px; }}
+  #status {{ min-height: 16px; color: var(--hundred); }}
   #filmstrip {{
     width: 100%;
     display: flex;
     gap: 6px;
     overflow-x: auto;
-    padding: 10px 20px 14px;
-    border-top: 1px solid var(--line);
-    background: var(--panel);
-    scrollbar-color: #4a5562 var(--panel);
+    padding: 8px 14px 11px;
+    border-top: 1px solid var(--etched);
+    background: var(--dash);
+    scrollbar-color: #4a5562 var(--dash);
   }}
   #filmstrip button {{
     position: relative;
@@ -369,8 +466,10 @@ def render_picker_html(video_name: str) -> str:
     background: #000;
     opacity: .54;
   }}
-  #filmstrip button.selected {{ border-color: var(--accent); opacity: 1; }}
-  #filmstrip img {{ display: block; height: 140px; width: auto; }}
+  #filmstrip button.selected {{ border-color: var(--ivory); opacity: 1; }}
+  #filmstrip button.launch-mark {{ box-shadow: inset 0 4px var(--launch); }}
+  #filmstrip button.hundred-mark {{ box-shadow: inset 0 4px var(--hundred); }}
+  #filmstrip img {{ display: block; height: 94px; width: auto; }}
   #filmstrip span {{
     position: absolute;
     right: 5px;
@@ -389,11 +488,18 @@ def render_picker_html(video_name: str) -> str:
     font: 700 clamp(24px, 5vw, 48px) Consolas, monospace;
     text-align: center;
   }}
-  @media (max-width: 640px) {{
+  @media (max-width: 900px) {{
+    body {{ height: auto; min-height: 100vh; overflow: auto; }}
     header {{ align-items: flex-start; flex-direction: column; gap: 4px; }}
-    main {{ padding-inline: 10px; }}
-    .marks {{ align-items: stretch; flex-direction: column; width: min(100%, 360px); }}
+    #picker {{ grid-template-columns: 1fr; height: auto; padding: 10px; }}
+    .stage {{ height: min(60vh, 620px); }}
+    .timing-panel {{ min-height: 440px; }}
     #filmstrip {{ padding-inline: 10px; }}
+  }}
+  @media (max-width: 560px) {{
+    .transport {{ grid-template-columns: 1fr; }}
+    .transport-buttons {{ justify-content: space-between; }}
+    .transport-buttons button {{ min-width: 40px; }}
   }}
   @media (prefers-reduced-motion: reduce) {{
     * {{ scroll-behavior: auto !important; }}
@@ -406,17 +512,51 @@ def render_picker_html(video_name: str) -> str:
   <p>Exact frame timing</p>
 </header>
 <main id="picker">
-  <div class="stage">
-    <video id="video" src="/video" controls preload="metadata"></video>
-  </div>
-  <div class="readout"><span id="time">0.000</span><span class="unit">PTS seconds</span></div>
-  <div class="marks">
-    <button id="markLaunch" type="button"><kbd>L</kbd>Mark launch<span class="chip">Not marked</span></button>
-    <button id="markHundred" type="button"><kbd>H</kbd>Mark 100 km/h<span class="chip">Not marked</span></button>
-    <button id="finish" type="button" disabled>Finish</button>
-  </div>
-  <p id="hint">Space or click: play/pause &nbsp; Arrows: 1 frame &nbsp; Shift+arrows: 10 frames &nbsp; Home/End: first/last</p>
-  <p id="status" role="status"></p>
+  <section class="viewer" aria-label="Video and frame controls">
+    <div class="stage">
+      <video id="video" src="/video" controls preload="metadata"></video>
+    </div>
+    <div class="transport">
+      <div class="transport-data">
+        <div class="readout"><span id="time">0.000</span><span class="unit">PTS</span></div>
+        <span id="frameCount">Frame - / -</span>
+      </div>
+      <div class="transport-buttons" aria-label="Frame transport">
+        <button id="stepBackTen" type="button" title="Back 10 frames">-10</button>
+        <button id="stepBack" type="button" title="Back 1 frame">-1</button>
+        <button id="playPause" type="button">Play</button>
+        <button id="stepForward" type="button" title="Forward 1 frame">+1</button>
+        <button id="stepForwardTen" type="button" title="Forward 10 frames">+10</button>
+      </div>
+      <p class="key-hint">Space plays. Hold arrows to inspect every frame. Shift skips 10.</p>
+    </div>
+  </section>
+  <aside class="timing-panel" aria-label="Run timing marks">
+    <div class="panel-heading"><strong>Run interval</strong><span>Exact frames</span></div>
+    <div class="endpoint launch-endpoint">
+      <button id="markLaunch" class="mark-control" type="button" disabled>
+        <span class="mark-label"><kbd>L</kbd>Mark launch</span>
+        <span class="mark-value">Not marked</span>
+      </button>
+      <button id="jumpLaunch" class="jump" type="button" disabled>Go to launch frame</button>
+    </div>
+    <div class="interval">
+      <span class="interval-line" aria-hidden="true"></span>
+      <div class="interval-copy"><span>Elapsed</span><strong id="elapsed">--.---</strong></div>
+    </div>
+    <div class="endpoint hundred-endpoint">
+      <button id="markHundred" class="mark-control" type="button" disabled>
+        <span class="mark-label"><kbd>H</kbd>Mark 100 km/h</span>
+        <span class="mark-value">Not marked</span>
+      </button>
+      <button id="jumpHundred" class="jump" type="button" disabled>Go to 100 km/h frame</button>
+    </div>
+    <p id="hint">L marks launch. H marks 100 km/h. You can replace either mark before finishing.</p>
+    <div class="panel-actions">
+      <button id="finish" type="button" disabled>Use these frames</button>
+      <p id="status" role="status"></p>
+    </div>
+  </aside>
 </main>
 <div id="filmstrip" aria-label="Video frames"></div>
 <script>
@@ -424,10 +564,15 @@ def render_picker_html(video_name: str) -> str:
   const thumbnailLimit = {DEFAULT_THUMBNAIL_LIMIT};
   const video = document.getElementById("video");
   const timeEl = document.getElementById("time");
+  const frameCountEl = document.getElementById("frameCount");
+  const elapsedEl = document.getElementById("elapsed");
   const filmstrip = document.getElementById("filmstrip");
   const launchButton = document.getElementById("markLaunch");
   const hundredButton = document.getElementById("markHundred");
+  const jumpLaunchButton = document.getElementById("jumpLaunch");
+  const jumpHundredButton = document.getElementById("jumpHundred");
   const finishButton = document.getElementById("finish");
+  const playPauseButton = document.getElementById("playPause");
   const statusEl = document.getElementById("status");
   let times = [];
   let selected = 0;
@@ -438,6 +583,9 @@ def render_picker_html(video_name: str) -> str:
   let selectedThumbnail = null;
   let launch = null;
   let hundred = null;
+  let launchIndex = null;
+  let hundredIndex = null;
+  let heldStep = 0;
   let finished = false;
 
   function nearestIndex(value) {{
@@ -456,6 +604,7 @@ def render_picker_html(video_name: str) -> str:
     if (!times.length) return;
     selected = Math.max(0, Math.min(times.length - 1, index));
     timeEl.textContent = times[selected].toFixed(3);
+    frameCountEl.textContent = "Frame " + String(selected + 1) + " / " + String(times.length);
     const thumbFrame = Math.min(
       times.length - 1,
       Math.round(selected / thumbnailStep) * thumbnailStep
@@ -473,13 +622,15 @@ def render_picker_html(video_name: str) -> str:
 
   function afterVideoPaint(callback) {{
     let finished = false;
-    function finish() {{
+    function finish(mediaTime) {{
       if (finished) return;
       finished = true;
-      callback();
+      callback(typeof mediaTime === "number" ? mediaTime : video.currentTime);
     }}
     if (typeof video.requestVideoFrameCallback === "function") {{
-      video.requestVideoFrameCallback(finish);
+      video.requestVideoFrameCallback(function (_now, metadata) {{
+        finish(metadata.mediaTime);
+      }});
       setTimeout(finish, 50);
     }} else {{
       requestAnimationFrame(finish);
@@ -504,11 +655,17 @@ def render_picker_html(video_name: str) -> str:
     const wasQueuedSeek = seekInFlight;
     seekInFlight = false;
     if (!wasQueuedSeek) requestedIndex = landed;
-    showIndex(landed);
     waitingForPaint = true;
-    afterVideoPaint(function () {{
+    afterVideoPaint(function (mediaTime) {{
+      const painted = nearestIndex(mediaTime);
+      showIndex(painted);
       waitingForPaint = false;
-      if (landed !== requestedIndex) pumpSeek();
+      if (painted !== requestedIndex) {{
+        pumpSeek();
+      }} else if (heldStep !== 0) {{
+        requestedIndex = Math.max(0, Math.min(times.length - 1, painted + heldStep));
+        if (requestedIndex !== painted) pumpSeek();
+      }}
     }});
   }}
 
@@ -524,21 +681,48 @@ def render_picker_html(video_name: str) -> str:
   }}
 
   function updateFinish() {{
-    finishButton.disabled = launch === null || hundred === null;
+    const complete = launch !== null && hundred !== null;
+    const ordered = complete && hundred > launch;
+    finishButton.disabled = !ordered;
+    elapsedEl.textContent = complete ? (hundred - launch).toFixed(3) + " s" : "--.---";
+    statusEl.textContent = complete && !ordered ? "The 100 km/h frame must come after launch." : "";
   }}
 
   function mark(button, which) {{
+    if (!times.length) return;
     const value = times[selected];
-    if (which === "launch") launch = value;
-    else hundred = value;
+    if (which === "launch") {{
+      launch = value;
+      launchIndex = selected;
+      jumpLaunchButton.disabled = false;
+    }} else {{
+      hundred = value;
+      hundredIndex = selected;
+      jumpHundredButton.disabled = false;
+    }}
     button.classList.add("marked");
-    button.querySelector(".chip").textContent = value.toFixed(3);
+    button.querySelector(".mark-value").textContent = value.toFixed(3) + " s";
+    document.querySelectorAll("#filmstrip ." + which + "-mark").forEach(function (thumbnail) {{
+      thumbnail.classList.remove(which + "-mark");
+    }});
+    const markedThumbnail = document.querySelector('[data-frame="' +
+      String(Math.min(times.length - 1, Math.round(selected / thumbnailStep) * thumbnailStep)) + '"]');
+    if (markedThumbnail) markedThumbnail.classList.add(which + "-mark");
     updateFinish();
   }}
 
   launchButton.addEventListener("click", function () {{ mark(launchButton, "launch"); }});
   hundredButton.addEventListener("click", function () {{ mark(hundredButton, "hundred"); }});
+  jumpLaunchButton.addEventListener("click", function () {{ requestIndex(launchIndex); }});
+  jumpHundredButton.addEventListener("click", function () {{ requestIndex(hundredIndex); }});
+  document.getElementById("stepBackTen").addEventListener("click", function () {{ requestIndex(requestedIndex - 10); }});
+  document.getElementById("stepBack").addEventListener("click", function () {{ requestIndex(requestedIndex - 1); }});
+  playPauseButton.addEventListener("click", togglePlayback);
+  document.getElementById("stepForward").addEventListener("click", function () {{ requestIndex(requestedIndex + 1); }});
+  document.getElementById("stepForwardTen").addEventListener("click", function () {{ requestIndex(requestedIndex + 10); }});
   video.addEventListener("click", togglePlayback);
+  video.addEventListener("play", function () {{ playPauseButton.textContent = "Pause"; }});
+  video.addEventListener("pause", function () {{ playPauseButton.textContent = "Play"; }});
   video.addEventListener("seeking", function () {{
     if (!seekInFlight) requestedIndex = nearestIndex(video.currentTime);
   }});
@@ -547,9 +731,14 @@ def render_picker_html(video_name: str) -> str:
 
   document.addEventListener("keydown", function (event) {{
     let destination = null;
-    if (event.key === "ArrowLeft") destination = requestedIndex + (event.shiftKey ? -10 : -1);
-    else if (event.key === "ArrowRight") destination = requestedIndex + (event.shiftKey ? 10 : 1);
-    else if (event.key === "Home") destination = 0;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {{
+      event.preventDefault();
+      if (event.repeat) return;
+      heldStep = (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 10 : 1);
+      requestIndex(requestedIndex + heldStep);
+      return;
+    }}
+    if (event.key === "Home") destination = 0;
     else if (event.key === "End") destination = times.length - 1;
     else if (event.code === "Space") {{
       event.preventDefault();
@@ -567,6 +756,11 @@ def render_picker_html(video_name: str) -> str:
     event.preventDefault();
     requestIndex(destination);
   }});
+
+  document.addEventListener("keyup", function (event) {{
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") heldStep = 0;
+  }});
+  window.addEventListener("blur", function () {{ heldStep = 0; }});
 
   finishButton.addEventListener("click", async function () {{
     finishButton.disabled = true;
@@ -598,6 +792,8 @@ def render_picker_html(video_name: str) -> str:
       if (!response.ok) throw new Error("Frame times unavailable.");
       times = await response.json();
       if (!times.length) throw new Error("No frame times found.");
+      launchButton.disabled = false;
+      hundredButton.disabled = false;
       thumbnailStep = Math.max(1, Math.ceil(times.length / thumbnailLimit));
       let thumbnailNumber = 1;
       for (let frame = 0; frame < times.length; frame += thumbnailStep) {{

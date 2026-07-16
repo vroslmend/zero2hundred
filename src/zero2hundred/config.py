@@ -23,6 +23,9 @@ class RenderSettings:
     freeze_duration: float = 2.0
     position: str = "bottom-center"
     timer_style: str = "stopwatch"
+    timer_label: str = "0-100 KM/H"
+    panel_color: str = "black@0.62"
+    accent_color: str = "0xFF6B4A@0.95"
     font: str = "Arial"
     font_file: str | None = None
     font_size_ratio: float = 0.065
@@ -44,6 +47,12 @@ class RenderSettings:
         if self.timer_style not in TIMER_STYLES:
             allowed = ", ".join(TIMER_STYLES)
             raise ConfigurationError(f"timer_style must be one of: {allowed}")
+        if not isinstance(self.timer_label, str) or not self.timer_label.strip():
+            raise ConfigurationError("timer_label cannot be empty")
+        if not isinstance(self.panel_color, str) or not self.panel_color.strip():
+            raise ConfigurationError("panel_color cannot be empty")
+        if not isinstance(self.accent_color, str) or not self.accent_color.strip():
+            raise ConfigurationError("accent_color cannot be empty")
         if not 0.01 <= self.font_size_ratio <= 0.5:
             raise ConfigurationError("font_size_ratio must be between 0.01 and 0.5")
         if not 0 <= self.margin_ratio <= 0.5:
@@ -82,4 +91,3 @@ def load_settings(path: Path | None) -> RenderSettings:
         return replace(settings, **data).validated()
     except TypeError as exc:
         raise ConfigurationError(f"invalid configuration value: {exc}") from exc
-
