@@ -33,3 +33,6 @@ zero2hundred = "zero2hundred.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+zero2hundred = ["assets/*.ttf", "assets/OFL.txt"]

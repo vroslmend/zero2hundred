@@ -132,21 +132,29 @@ Anything you pass on the command line wins over the TOML file:
 ```toml
 freeze_duration = 2.0
 position = "bottom-center"
-timer_style = "stopwatch"   # "hms" gives HH:MM:SS.mmm instead
-timer_label = "0-100 KM/H"
-panel_color = "black@0.62"
-accent_color = "0xFF6B4A@0.95"
-font = "Arial"
+overlay_style = "type-only"       # type-only, quiet-plate, or compact
+bottom_clearance_ratio = 0.16
+overlay_scale = 1.0
+timer_format = "seconds"          # seconds or stopwatch
+timer_label = "0–100 km/h"
+panel_color = "black@0.58"
+accent_color = "white@0.22"
+font = "Manrope"
 font_size_ratio = 0.065
 margin_ratio = 0.04
 text_color = "white"
 border_color = "black"
-border_width = 4
+border_width = 2
 video_encoder = "libx264"
 crf = 18
 preset = "medium"
 audio_bitrate = "192k"
 ```
+
+The default `type-only` overlay keeps the timer centered and clear of common
+short-form video controls. `quiet-plate` adds a subtle dark panel, while
+`compact` puts the label and timer on one line. Manrope is bundled with the
+tool, so the default design looks the same on every system.
 
 ## A note on the numbers
 

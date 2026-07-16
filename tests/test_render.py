@@ -19,7 +19,7 @@ class RenderGraphTests(unittest.TestCase):
         )
         self.events = EventWindow(launch=4.0, reached_100=10.0)
 
-    def test_stopwatch_default_has_no_enable_and_is_centered(self) -> None:
+    def test_type_only_default_uses_manrope_seconds_and_safe_clearance(self) -> None:
         graph = build_filter_graph(
             self.media,
             self.events,
@@ -29,15 +29,13 @@ class RenderGraphTests(unittest.TestCase):
         self.assertIn("trim=start=0.000000", graph)
         self.assertIn("fps=fps=30.000000", graph)
         self.assertNotIn("enable=", graph)
-        self.assertIn("drawbox=", graph)
-        self.assertIn(r"drawbox=x=(iw-ih*0.398000)/2", graph)
-        self.assertIn("0-100 KM/H", graph)
-        self.assertIn("color=black@0.620000", graph)
-        self.assertIn("color=0xFF6B4A@0.950000", graph)
-        self.assertIn(r"x=(w-h*0.398000)/2+h*0.025000", graph)
+        self.assertNotIn("drawbox=", graph)
+        self.assertIn("Manrope-Variable.ttf", graph)
+        self.assertIn("0–100 km/h", graph)
+        self.assertIn("y=h-text_h-h*0.160000", graph)
+        self.assertIn("text='s'", graph)
         self.assertIn(
-            r"%{eif\:trunc(min(max(t-4.000000\,0)\,6.000000)/60)\:d\:2}\:"
-            r"%{eif\:trunc(mod(min(max(t-4.000000\,0)\,6.000000)\,60))\:d\:2}\:"
+            r"%{eif\:trunc(min(max(t-4.000000\,0)\,6.000000))\:d}."
             r"%{eif\:trunc(mod(min(max(t-4.000000\,0)\,6.000000)\,1)*100)\:d\:2}",
             graph,
         )
@@ -54,6 +52,31 @@ class RenderGraphTests(unittest.TestCase):
         self.assertIn(r"%{pts\:hms\:-4.000000}", graph)
         self.assertIn("enable='gte(t,4.000000)'", graph)
         self.assertNotIn("drawbox=", graph)
+
+    def test_stopwatch_format_keeps_mm_ss_centiseconds(self) -> None:
+        graph = build_filter_graph(
+            self.media,
+            self.events,
+            RenderSettings(timer_format="stopwatch"),
+            trim_intro=False,
+        )
+        self.assertIn(
+            r"%{eif\:trunc(min(max(t-4.000000\,0)\,6.000000)/60)\:d\:2}\:"
+            r"%{eif\:trunc(mod(min(max(t-4.000000\,0)\,6.000000)\,60))\:d\:2}\:",
+            graph,
+        )
+
+    def test_panel_presets_add_a_neutral_drawbox(self) -> None:
+        for style in ("quiet-plate", "compact"):
+            with self.subTest(style=style):
+                graph = build_filter_graph(
+                    self.media,
+                    self.events,
+                    RenderSettings(overlay_style=style),
+                    trim_intro=False,
+                )
+                self.assertIn("drawbox=", graph)
+                self.assertIn("color=black@0.580000", graph)
 
     def test_trim_intro_resets_timer(self) -> None:
         graph = build_filter_graph(

@@ -13,6 +13,7 @@ from zero2hundred.media import MediaInfo, Toolchain
 
 
 ProgressCallback = Callable[[float], None]
+_MANROPE_FONT = Path(__file__).with_name("assets") / "Manrope-Variable.ttf"
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,15 +135,10 @@ def build_filter_graph(
     timer_start = 0.0 if trim_intro else events.launch
     trim_end = _resolve_clip_end(media, events, clip_end)
 
-    timer = _timer_text(timer_start, events.elapsed, settings.timer_style)
-    font_option = (
-        f"fontfile='{_escape_filter_value(settings.font_file)}'"
-        if settings.font_file
-        else f"font='{_escape_filter_value(settings.font)}'"
-    )
-    if settings.timer_style == "stopwatch":
-        video_filters = _stopwatch_filters(settings, font_option, timer)
-    else:
+    timer_style = settings.timer_style or settings.timer_format
+    timer = _timer_text(timer_start, events.elapsed, timer_style)
+    font_option = _font_option(settings)
+    if timer_style == "hms":
         x, y = _position(settings.position, settings.margin_ratio)
         drawtext_options = [
             font_option,
@@ -156,6 +152,8 @@ def build_filter_graph(
         ]
         drawtext_options.append(f"enable='gte(t,{timer_start:.6f})'")
         video_filters = ["drawtext=" + ":".join(drawtext_options)]
+    else:
+        video_filters = _overlay_filters(settings, font_option, timer)
     video_chain = (
         f"[0:v]trim=start={clip_start:.6f}:end={trim_end:.6f},"
         f"setpts=PTS-STARTPTS,fps=fps={media.frame_rate:.6f},"
@@ -179,8 +177,13 @@ def _timer_text(timer_start: float, elapsed: float, style: str) -> str:
         # FFmpeg's pts formatter produces HH:MM:SS.mmm and accepts a timestamp offset.
         return f"%{{pts\\:hms\\:-{timer_start:.6f}}}"
     # Clamp elapsed time to [0, ELAPSED] so the frozen tail keeps showing the
-    # exact result instead of drifting past it, and render as MM:SS:cc.
+    # exact result instead of drifting past it.
     v = f"min(max(t-{timer_start:.6f}\\,0)\\,{elapsed:.6f})"
+    if style == "seconds":
+        return (
+            f"%{{eif\\:trunc({v})\\:d}}."
+            f"%{{eif\\:trunc(mod({v}\\,1)*100)\\:d\\:2}}"
+        )
     return (
         f"%{{eif\\:trunc({v}/60)\\:d\\:2}}\\:"
         f"%{{eif\\:trunc(mod({v}\\,60))\\:d\\:2}}\\:"
@@ -205,68 +208,302 @@ def _position(position: str, margin: float) -> tuple[str, str]:
     return positions[position]
 
 
-def _stopwatch_filters(
+def _font_option(settings: RenderSettings) -> str:
+    if settings.font_file:
+        path = settings.font_file
+        return f"fontfile='{_escape_filter_value(path)}'"
+    if settings.font.casefold() == "manrope":
+        return f"fontfile='{_escape_filter_value(str(_MANROPE_FONT))}'"
+    return f"font='{_escape_filter_value(settings.font)}'"
+
+
+def _overlay_filters(
     settings: RenderSettings,
     font_option: str,
     timer: str,
 ) -> list[str]:
-    panel_width = settings.font_size_ratio * 5.2 + 0.06
-    panel_height = settings.font_size_ratio + 0.065
+    main_size = settings.font_size_ratio * settings.overlay_scale
+    label_size = max(0.012, main_size * 0.27)
+    unit_size = max(0.012, main_size * 0.34)
+    if settings.overlay_style == "quiet-plate":
+        return _quiet_plate_filters(
+            settings, font_option, timer, main_size, label_size, unit_size
+        )
+    if settings.overlay_style == "compact":
+        return _compact_filters(settings, font_option, timer, main_size)
+    return _type_only_filters(
+        settings, font_option, timer, main_size, label_size, unit_size
+    )
+
+
+def _type_only_filters(
+    settings: RenderSettings,
+    font_option: str,
+    timer: str,
+    main_size: float,
+    label_size: float,
+    unit_size: float,
+) -> list[str]:
+    label_x = _aligned_text_x(settings.position, settings.margin_ratio)
+    if settings.position.endswith("left"):
+        timer_x = f"w*{settings.margin_ratio:.6f}"
+        unit_x = f"w*{settings.margin_ratio:.6f}+h*{main_size * 2.55:.6f}"
+    elif settings.position.endswith("right"):
+        timer_x = (
+            f"w-text_w-w*{settings.margin_ratio:.6f}-h*{unit_size * 0.85:.6f}"
+        )
+        unit_x = f"w-text_w-w*{settings.margin_ratio:.6f}"
+    else:
+        timer_x = f"(w-text_w)/2-h*{unit_size * 0.18:.6f}"
+        unit_x = f"w/2+h*{main_size * 1.28:.6f}"
+
+    if settings.position.startswith("bottom"):
+        timer_y = f"h-text_h-h*{settings.bottom_clearance_ratio:.6f}"
+        label_y = (
+            f"h-h*{settings.bottom_clearance_ratio:.6f}"
+            f"-h*{main_size + label_size + 0.010:.6f}"
+        )
+        unit_y = f"h-text_h-h*{settings.bottom_clearance_ratio + 0.003:.6f}"
+    else:
+        label_y = f"h*{settings.margin_ratio:.6f}"
+        timer_y = f"h*{settings.margin_ratio + label_size + 0.008:.6f}"
+        unit_y = (
+            f"h*{settings.margin_ratio + label_size + main_size - unit_size + 0.004:.6f}"
+        )
+
+    return [
+        _drawtext_filter(
+            font_option,
+            _escape_filter_value(settings.timer_label),
+            label_size,
+            settings.text_color,
+            label_x,
+            label_y,
+            settings,
+            max(1, settings.border_width // 2),
+        ),
+        _drawtext_filter(
+            font_option,
+            timer,
+            main_size,
+            settings.text_color,
+            timer_x,
+            timer_y,
+            settings,
+            settings.border_width,
+        ),
+        _drawtext_filter(
+            font_option,
+            "s",
+            unit_size,
+            settings.text_color,
+            unit_x,
+            unit_y,
+            settings,
+            max(1, settings.border_width // 2),
+        ),
+    ]
+
+
+def _quiet_plate_filters(
+    settings: RenderSettings,
+    font_option: str,
+    timer: str,
+    main_size: float,
+    label_size: float,
+    unit_size: float,
+) -> list[str]:
+    panel_width = main_size * 4.0 + 0.06
+    panel_height = main_size + label_size + 0.045
     panel_x, panel_y = _box_position(
         settings.position,
         settings.margin_ratio,
+        settings.bottom_clearance_ratio,
         panel_width,
         panel_height,
     )
     drawbox_x, drawbox_y = _drawbox_position(
         settings.position,
         settings.margin_ratio,
+        settings.bottom_clearance_ratio,
         panel_width,
         panel_height,
     )
-    panel_color = _normalized_color(settings.panel_color)
-    accent_color = _normalized_color(settings.accent_color)
-    timer_x = f"{panel_x}+h*0.025000"
-    timer_y = f"{panel_y}+h*0.047000"
-    label_x = f"{panel_x}+h*0.025000"
-    label_y = f"{panel_y}+h*0.015000"
-    label_size = max(0.012, settings.font_size_ratio * 0.24)
-
-    timer_options = [
-        font_option,
-        f"text='{timer}'",
-        f"fontsize=h*{settings.font_size_ratio:.6f}",
-        f"fontcolor={settings.text_color}",
-        f"bordercolor={settings.border_color}",
-        f"borderw={settings.border_width}",
-        f"x={timer_x}",
-        f"y={timer_y}",
-    ]
-    label_options = [
-        font_option,
-        f"text='{_escape_filter_value(settings.timer_label)}'",
-        f"fontsize=h*{label_size:.6f}",
-        f"fontcolor={accent_color}",
-        f"x={label_x}",
-        f"y={label_y}",
-    ]
+    label_x = f"{panel_x}+h*0.018000"
+    label_y = f"{panel_y}+h*0.013000"
+    timer_x = f"{panel_x}+h*0.018000"
+    timer_y = f"{panel_y}+h*{label_size + 0.025:.6f}"
+    unit_x = f"{panel_x}+h*{0.018 + main_size * 2.55:.6f}"
+    unit_y = f"{timer_y}+h*{(main_size - unit_size) * 0.70:.6f}"
     return [
-        (
-            f"drawbox=x={drawbox_x}:y={drawbox_y}:w=ih*{panel_width:.6f}:"
-            f"h=ih*{panel_height:.6f}:color={panel_color}:t=fill"
+        _drawbox_filter(
+            drawbox_x,
+            drawbox_y,
+            panel_width,
+            panel_height,
+            settings.panel_color,
         ),
-        (
-            f"drawbox=x={drawbox_x}:y={drawbox_y}:w=ih*0.006000:"
-            f"h=ih*{panel_height:.6f}:color={accent_color}:t=fill"
+        _drawtext_filter(
+            font_option,
+            _escape_filter_value(settings.timer_label),
+            label_size,
+            settings.text_color,
+            label_x,
+            label_y,
+            settings,
+            max(1, settings.border_width // 2),
         ),
-        "drawtext=" + ":".join(label_options),
-        "drawtext=" + ":".join(timer_options),
+        _drawtext_filter(
+            font_option,
+            timer,
+            main_size,
+            settings.text_color,
+            timer_x,
+            timer_y,
+            settings,
+            settings.border_width,
+        ),
+        _drawtext_filter(
+            font_option,
+            "s",
+            unit_size,
+            settings.text_color,
+            unit_x,
+            unit_y,
+            settings,
+            max(1, settings.border_width // 2),
+        ),
     ]
+
+
+def _compact_filters(
+    settings: RenderSettings,
+    font_option: str,
+    timer: str,
+    main_size: float,
+) -> list[str]:
+    value_size = main_size * 0.72
+    label_size = max(0.012, main_size * 0.23)
+    unit_size = max(0.012, value_size * 0.34)
+    panel_width = value_size * 4.25 + label_size * 6.0 + 0.07
+    panel_height = value_size + 0.032
+    panel_x, panel_y = _box_position(
+        settings.position,
+        settings.margin_ratio,
+        settings.bottom_clearance_ratio,
+        panel_width,
+        panel_height,
+    )
+    drawbox_x, drawbox_y = _drawbox_position(
+        settings.position,
+        settings.margin_ratio,
+        settings.bottom_clearance_ratio,
+        panel_width,
+        panel_height,
+    )
+    divider_offset = label_size * 6.0 + 0.035
+    value_offset = label_size * 6.0 + 0.052
+    label_y = f"{panel_y}+h*{(panel_height - label_size) / 2 - 0.002:.6f}"
+    value_y = f"{panel_y}+h*{(panel_height - value_size) / 2 - 0.002:.6f}"
+    unit_y = f"{panel_y}+h*{(panel_height - unit_size) / 2:.6f}"
+    return [
+        _drawbox_filter(
+            drawbox_x,
+            drawbox_y,
+            panel_width,
+            panel_height,
+            settings.panel_color,
+        ),
+        (
+            f"drawbox=x={drawbox_x}+ih*{divider_offset:.6f}:"
+            f"y={drawbox_y}+ih*0.012000:w=ih*0.001000:"
+            f"h=ih*{panel_height - 0.024:.6f}:"
+            f"color={_normalized_color(settings.accent_color)}:t=fill"
+        ),
+        _drawtext_filter(
+            font_option,
+            _escape_filter_value(settings.timer_label),
+            label_size,
+            settings.text_color,
+            f"{panel_x}+h*0.018000",
+            label_y,
+            settings,
+            max(1, settings.border_width // 2),
+        ),
+        _drawtext_filter(
+            font_option,
+            timer,
+            value_size,
+            settings.text_color,
+            f"{panel_x}+h*{value_offset:.6f}",
+            value_y,
+            settings,
+            settings.border_width,
+        ),
+        _drawtext_filter(
+            font_option,
+            "s",
+            unit_size,
+            settings.text_color,
+            f"{panel_x}+h*{value_offset + value_size * 2.55:.6f}",
+            unit_y,
+            settings,
+            max(1, settings.border_width // 2),
+        ),
+    ]
+
+
+def _drawtext_filter(
+    font_option: str,
+    text: str,
+    size: float,
+    color: str,
+    x: str,
+    y: str,
+    settings: RenderSettings,
+    border_width: int,
+) -> str:
+    options = [
+        font_option,
+        f"text='{text}'",
+        f"fontsize=h*{size:.6f}",
+        f"fontcolor={_normalized_color(color)}",
+        f"bordercolor={_normalized_color(settings.border_color)}",
+        f"borderw={border_width}",
+        "shadowcolor=black@0.850000",
+        "shadowx=2",
+        "shadowy=3",
+        f"x={x}",
+        f"y={y}",
+    ]
+    return "drawtext=" + ":".join(options)
+
+
+def _drawbox_filter(
+    x: str,
+    y: str,
+    width: float,
+    height: float,
+    color: str,
+) -> str:
+    return (
+        f"drawbox=x={x}:y={y}:w=ih*{width:.6f}:h=ih*{height:.6f}:"
+        f"color={_normalized_color(color)}:t=fill"
+    )
+
+
+def _aligned_text_x(position: str, margin: float) -> str:
+    if position.endswith("left"):
+        return f"w*{margin:.6f}"
+    if position.endswith("right"):
+        return f"w-text_w-w*{margin:.6f}"
+    return "(w-text_w)/2"
 
 
 def _box_position(
     position: str,
     margin: float,
+    bottom_clearance: float,
     width: float,
     height: float,
 ) -> tuple[str, str]:
@@ -274,7 +511,7 @@ def _box_position(
     right = f"w-h*{width:.6f}-w*{margin:.6f}"
     center = f"(w-h*{width:.6f})/2"
     top = f"h*{margin:.6f}"
-    bottom = f"h-h*{height:.6f}-h*{margin:.6f}"
+    bottom = f"h-h*{height:.6f}-h*{bottom_clearance:.6f}"
     positions = {
         "top-left": (left, top),
         "top-right": (right, top),
@@ -289,6 +526,7 @@ def _box_position(
 def _drawbox_position(
     position: str,
     margin: float,
+    bottom_clearance: float,
     width: float,
     height: float,
 ) -> tuple[str, str]:
@@ -296,7 +534,7 @@ def _drawbox_position(
     right = f"iw-ih*{width:.6f}-iw*{margin:.6f}"
     center = f"(iw-ih*{width:.6f})/2"
     top = f"ih*{margin:.6f}"
-    bottom = f"ih-ih*{height:.6f}-ih*{margin:.6f}"
+    bottom = f"ih-ih*{height:.6f}-ih*{bottom_clearance:.6f}"
     positions = {
         "top-left": (left, top),
         "top-right": (right, top),

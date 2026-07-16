@@ -9,9 +9,12 @@ from zero2hundred.errors import ConfigurationError
 class ConfigTests(unittest.TestCase):
     def test_defaults_are_valid(self) -> None:
         self.assertEqual(load_settings(None), RenderSettings())
-        self.assertEqual(RenderSettings().timer_label, "0-100 KM/H")
-        self.assertEqual(RenderSettings().panel_color, "black@0.62")
-        self.assertEqual(RenderSettings().accent_color, "0xFF6B4A@0.95")
+        self.assertEqual(RenderSettings().overlay_style, "type-only")
+        self.assertEqual(RenderSettings().bottom_clearance_ratio, 0.16)
+        self.assertEqual(RenderSettings().overlay_scale, 1.0)
+        self.assertEqual(RenderSettings().timer_format, "seconds")
+        self.assertEqual(RenderSettings().timer_label, "0–100 km/h")
+        self.assertEqual(RenderSettings().font, "Manrope")
 
     def test_loads_render_table(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -37,7 +40,16 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(ConfigurationError):
             RenderSettings(position="middle").validated()
 
-    def test_accepts_valid_timer_styles(self) -> None:
+    def test_accepts_overlay_styles_and_timer_formats(self) -> None:
+        for style in ("type-only", "quiet-plate", "compact"):
+            self.assertEqual(RenderSettings(overlay_style=style).validated().overlay_style, style)
+        for timer_format in ("seconds", "stopwatch"):
+            self.assertEqual(
+                RenderSettings(timer_format=timer_format).validated().timer_format,
+                timer_format,
+            )
+
+    def test_accepts_legacy_timer_styles(self) -> None:
         for style in ("stopwatch", "hms"):
             settings = RenderSettings(timer_style=style).validated()
             self.assertEqual(settings.timer_style, style)
@@ -45,6 +57,16 @@ class ConfigTests(unittest.TestCase):
     def test_rejects_bad_timer_style(self) -> None:
         with self.assertRaises(ConfigurationError):
             RenderSettings(timer_style="digital").validated()
+
+    def test_rejects_bad_overlay_configuration(self) -> None:
+        with self.assertRaises(ConfigurationError):
+            RenderSettings(overlay_style="neon").validated()
+        with self.assertRaises(ConfigurationError):
+            RenderSettings(timer_format="frames").validated()
+        with self.assertRaises(ConfigurationError):
+            RenderSettings(bottom_clearance_ratio=0.6).validated()
+        with self.assertRaises(ConfigurationError):
+            RenderSettings(overlay_scale=0.2).validated()
 
 
 if __name__ == "__main__":
