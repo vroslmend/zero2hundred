@@ -25,6 +25,24 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ConfigurationError):
                 load_settings(path)
 
+    def test_accepts_new_positions(self) -> None:
+        for position in ("top-center", "bottom-center"):
+            settings = RenderSettings(position=position).validated()
+            self.assertEqual(settings.position, position)
+
+    def test_rejects_bad_position(self) -> None:
+        with self.assertRaises(ConfigurationError):
+            RenderSettings(position="middle").validated()
+
+    def test_accepts_valid_timer_styles(self) -> None:
+        for style in ("stopwatch", "hms"):
+            settings = RenderSettings(timer_style=style).validated()
+            self.assertEqual(settings.timer_style, style)
+
+    def test_rejects_bad_timer_style(self) -> None:
+        with self.assertRaises(ConfigurationError):
+            RenderSettings(timer_style="digital").validated()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -131,25 +131,25 @@ def build_filter_graph(
     clip_end = min(media.duration, events.reached_100 + media.frame_duration)
 
     x, y = _position(settings.position, settings.margin_ratio)
-    timer = _timer_text(timer_start)
+    timer = _timer_text(timer_start, events.elapsed, settings.timer_style)
     font_option = (
         f"fontfile='{_escape_filter_value(settings.font_file)}'"
         if settings.font_file
         else f"font='{_escape_filter_value(settings.font)}'"
     )
-    drawtext = "drawtext=" + ":".join(
-        [
-            font_option,
-            f"text='{timer}'",
-            f"fontsize=h*{settings.font_size_ratio:.6f}",
-            f"fontcolor={settings.text_color}",
-            f"bordercolor={settings.border_color}",
-            f"borderw={settings.border_width}",
-            f"x={x}",
-            f"y={y}",
-            f"enable='gte(t,{timer_start:.6f})'",
-        ]
-    )
+    drawtext_options = [
+        font_option,
+        f"text='{timer}'",
+        f"fontsize=h*{settings.font_size_ratio:.6f}",
+        f"fontcolor={settings.text_color}",
+        f"bordercolor={settings.border_color}",
+        f"borderw={settings.border_width}",
+        f"x={x}",
+        f"y={y}",
+    ]
+    if settings.timer_style == "hms":
+        drawtext_options.append(f"enable='gte(t,{timer_start:.6f})'")
+    drawtext = "drawtext=" + ":".join(drawtext_options)
     video_chain = (
         f"[0:v]trim=start={clip_start:.6f}:end={clip_end:.6f},"
         f"setpts=PTS-STARTPTS,fps=fps={media.frame_rate:.6f},{drawtext},"
@@ -168,21 +168,33 @@ def build_filter_graph(
     return f"{video_chain};{audio_chain}"
 
 
-def _timer_text(timer_start: float) -> str:
-    # FFmpeg's pts formatter produces HH:MM:SS.mmm and accepts a timestamp offset.
-    return f"%{{pts\\:hms\\:-{timer_start:.6f}}}"
+def _timer_text(timer_start: float, elapsed: float, style: str) -> str:
+    if style == "hms":
+        # FFmpeg's pts formatter produces HH:MM:SS.mmm and accepts a timestamp offset.
+        return f"%{{pts\\:hms\\:-{timer_start:.6f}}}"
+    # Clamp elapsed time to [0, ELAPSED] so the frozen tail keeps showing the
+    # exact result instead of drifting past it, and render as MM:SS:cc.
+    v = f"min(max(t-{timer_start:.6f}\\,0)\\,{elapsed:.6f})"
+    return (
+        f"%{{eif\\:trunc({v}/60)\\:d\\:2}}\\:"
+        f"%{{eif\\:trunc(mod({v}\\,60))\\:d\\:2}}\\:"
+        f"%{{eif\\:trunc(mod({v}\\,1)*100)\\:d\\:2}}"
+    )
 
 
 def _position(position: str, margin: float) -> tuple[str, str]:
     left = f"w*{margin:.6f}"
     right = f"w-text_w-w*{margin:.6f}"
+    center = "(w-text_w)/2"
     top = f"h*{margin:.6f}"
     bottom = f"h-text_h-h*{margin:.6f}"
     positions = {
         "top-left": (left, top),
         "top-right": (right, top),
+        "top-center": (center, top),
         "bottom-left": (left, bottom),
         "bottom-right": (right, bottom),
+        "bottom-center": (center, bottom),
     }
     return positions[position]
 

@@ -7,13 +7,22 @@ import tomllib
 from zero2hundred.errors import ConfigurationError
 
 
-POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
+POSITIONS = (
+    "top-left",
+    "top-right",
+    "top-center",
+    "bottom-left",
+    "bottom-right",
+    "bottom-center",
+)
+TIMER_STYLES = ("stopwatch", "hms")
 
 
 @dataclass(frozen=True, slots=True)
 class RenderSettings:
     freeze_duration: float = 2.0
-    position: str = "bottom-right"
+    position: str = "bottom-center"
+    timer_style: str = "stopwatch"
     font: str = "Arial"
     font_file: str | None = None
     font_size_ratio: float = 0.065
@@ -32,6 +41,9 @@ class RenderSettings:
         if self.position not in POSITIONS:
             allowed = ", ".join(POSITIONS)
             raise ConfigurationError(f"position must be one of: {allowed}")
+        if self.timer_style not in TIMER_STYLES:
+            allowed = ", ".join(TIMER_STYLES)
+            raise ConfigurationError(f"timer_style must be one of: {allowed}")
         if not 0.01 <= self.font_size_ratio <= 0.5:
             raise ConfigurationError("font_size_ratio must be between 0.01 and 0.5")
         if not 0 <= self.margin_ratio <= 0.5:

@@ -19,7 +19,7 @@ class RenderGraphTests(unittest.TestCase):
         )
         self.events = EventWindow(launch=4.0, reached_100=10.0)
 
-    def test_keeps_intro_and_offsets_timer(self) -> None:
+    def test_stopwatch_default_has_no_enable_and_is_centered(self) -> None:
         graph = build_filter_graph(
             self.media,
             self.events,
@@ -28,15 +28,43 @@ class RenderGraphTests(unittest.TestCase):
         )
         self.assertIn("trim=start=0.000000", graph)
         self.assertIn("fps=fps=30.000000", graph)
-        self.assertIn("enable='gte(t,4.000000)'", graph)
+        self.assertNotIn("enable=", graph)
+        self.assertIn(r"x=(w-text_w)/2", graph)
+        self.assertIn(
+            r"%{eif\:trunc(min(max(t-4.000000\,0)\,6.000000)/60)\:d\:2}\:"
+            r"%{eif\:trunc(mod(min(max(t-4.000000\,0)\,6.000000)\,60))\:d\:2}\:"
+            r"%{eif\:trunc(mod(min(max(t-4.000000\,0)\,6.000000)\,1)*100)\:d\:2}",
+            graph,
+        )
         self.assertIn("tpad=stop_mode=clone:stop_duration=2.000000", graph)
         self.assertIn("apad=pad_dur=2.000000", graph)
+
+    def test_hms_style_keeps_previous_behavior(self) -> None:
+        graph = build_filter_graph(
+            self.media,
+            self.events,
+            RenderSettings(timer_style="hms"),
+            trim_intro=False,
+        )
+        self.assertIn(r"%{pts\:hms\:-4.000000}", graph)
+        self.assertIn("enable='gte(t,4.000000)'", graph)
 
     def test_trim_intro_resets_timer(self) -> None:
         graph = build_filter_graph(
             self.media,
             self.events,
             RenderSettings(),
+            trim_intro=True,
+        )
+        self.assertIn("trim=start=4.000000", graph)
+        self.assertNotIn("enable=", graph)
+        self.assertIn(r"min(max(t-0.000000\,0)\,6.000000)", graph)
+
+    def test_trim_intro_resets_timer_hms(self) -> None:
+        graph = build_filter_graph(
+            self.media,
+            self.events,
+            RenderSettings(timer_style="hms"),
             trim_intro=True,
         )
         self.assertIn("trim=start=4.000000", graph)
