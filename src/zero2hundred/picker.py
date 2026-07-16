@@ -337,7 +337,7 @@ def render_picker_html(video_name: str) -> str:
     border: 1px solid var(--etched);
     background: var(--dash);
   }}
-  .transport-data {{ display: grid; gap: 6px; }}
+  .transport-data {{ display: grid; gap: 9px; }}
   .readout {{ display: flex; align-items: baseline; gap: 9px; }}
   #time {{
     font-family: var(--font-display);
@@ -346,10 +346,17 @@ def render_picker_html(video_name: str) -> str:
     font-weight: 620;
     line-height: .9;
   }}
-  .unit, #frameCount {{
+  .unit {{
     color: var(--muted);
     font-size: 12.5px;
     font-weight: 450;
+  }}
+  .frame-meta {{ display: flex; align-items: baseline; gap: 8px; }}
+  .frame-meta span {{ color: var(--muted); font-size: 12px; font-weight: 450; }}
+  #frameCount {{
+    color: var(--soft);
+    font: 600 13px/1 var(--font-display);
+    font-variant-numeric: tabular-nums;
   }}
   .transport-buttons {{ display: flex; align-items: center; gap: 5px; }}
   button {{
@@ -385,11 +392,34 @@ def render_picker_html(video_name: str) -> str:
     color: var(--muted);
     font: 600 11px/1 var(--font-ui);
   }}
-  .key-hint {{
+  .shortcut-guide {{
     grid-column: 1 / -1;
-    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    padding-top: 11px;
+    border-top: 1px solid var(--etched);
+  }}
+  .shortcut, .panel-shortcut {{
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
     color: var(--muted);
-    font: 450 12.5px/1.4 var(--font-ui);
+    font-size: 12px;
+    line-height: 1.3;
+  }}
+  .shortcut kbd, .panel-shortcut kbd {{
+    display: inline-grid;
+    min-width: 24px;
+    min-height: 22px;
+    padding: 3px 6px;
+    place-items: center;
+    border: 1px solid #3b4045;
+    border-radius: 4px;
+    background: #0d0f10;
+    color: var(--soft);
+    font: 600 11px/1 var(--font-ui);
+    white-space: nowrap;
   }}
   .timing-panel {{
     display: flex;
@@ -468,13 +498,21 @@ def render_picker_html(video_name: str) -> str:
     color: var(--carbon);
   }}
   #finish:not(:disabled):hover {{ background: #fff; }}
-  #hint, #status {{
+  .panel-guide {{
+    display: grid;
+    gap: 9px;
+    margin-top: 4px;
+    padding-top: 14px;
+    border-top: 1px solid var(--etched);
+  }}
+  .panel-guide > strong {{ color: var(--soft); font-size: 12.5px; font-weight: 600; }}
+  .panel-shortcuts {{ display: flex; flex-wrap: wrap; gap: 8px 14px; }}
+  .replace-note, #status {{
     margin: 0;
     color: var(--muted);
     font-size: 12px;
     line-height: 1.45;
   }}
-  #hint {{ margin-top: 8px; }}
   #status {{ min-height: 16px; color: var(--ivory); }}
   #filmstrip {{
     width: 100%;
@@ -556,7 +594,7 @@ def render_picker_html(video_name: str) -> str:
     <div class="transport">
       <div class="transport-data">
         <div class="readout"><span id="time">0.000</span><span class="unit">seconds</span></div>
-        <span id="frameCount">Frame - of -</span>
+        <div class="frame-meta"><span>Current frame</span><strong id="frameCount">- / -</strong></div>
       </div>
       <div class="transport-buttons" aria-label="Frame transport">
         <button id="stepBackTen" type="button" title="Back 10 frames">-10</button>
@@ -565,7 +603,12 @@ def render_picker_html(video_name: str) -> str:
         <button id="stepForward" type="button" title="Forward 1 frame">+1</button>
         <button id="stepForwardTen" type="button" title="Forward 10 frames">+10</button>
       </div>
-      <p class="key-hint">Space plays. Tap an arrow for 1 frame. Hold to keep moving. Shift skips 10. Z toggles Gauge view.</p>
+      <div class="shortcut-guide" aria-label="Playback shortcuts">
+        <span class="shortcut"><kbd>Space</kbd><span>Play or pause</span></span>
+        <span class="shortcut"><kbd>← →</kbd><span>Tap for one frame, hold to move</span></span>
+        <span class="shortcut"><kbd>Shift</kbd><span>Skip ten frames</span></span>
+        <span class="shortcut"><kbd>Z</kbd><span>Gauge view</span></span>
+      </div>
     </div>
   </section>
   <aside class="timing-panel" aria-label="Run timing marks">
@@ -588,7 +631,14 @@ def render_picker_html(video_name: str) -> str:
       </button>
       <button id="jumpHundred" class="jump" type="button" disabled>Go to 100 km/h frame</button>
     </div>
-    <p id="hint">L marks launch. H marks 100 km/h. You can replace either mark before finishing.</p>
+    <div class="panel-guide" aria-label="Marking shortcuts">
+      <strong>Keyboard shortcuts</strong>
+      <div class="panel-shortcuts">
+        <span class="panel-shortcut"><kbd>L</kbd><span>Mark launch</span></span>
+        <span class="panel-shortcut"><kbd>H</kbd><span>Mark 100 km/h</span></span>
+      </div>
+      <p class="replace-note">Mark a frame again to replace it.</p>
+    </div>
     <div class="panel-actions">
       <button id="finish" type="button" disabled>Use these frames</button>
       <p id="status" role="status"></p>
@@ -646,7 +696,7 @@ def render_picker_html(video_name: str) -> str:
     if (!times.length) return;
     selected = Math.max(0, Math.min(times.length - 1, index));
     timeEl.textContent = times[selected].toFixed(3);
-    frameCountEl.textContent = "Frame " + String(selected + 1) + " of " + String(times.length);
+    frameCountEl.textContent = String(selected + 1) + " / " + String(times.length);
     const thumbFrame = Math.min(
       times.length - 1,
       Math.round(selected / thumbnailStep) * thumbnailStep
