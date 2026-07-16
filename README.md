@@ -377,10 +377,10 @@ Run the complete test suite:
 python -m unittest discover -s tests
 ```
 
-## Author
-
-Made by Ammar Hassan.
-
 ## License
 
 zero2hundred is available under the [MIT License](LICENSE).
+
+---
+
+Made by [Ammar Hassan](https://github.com/vroslmend).
