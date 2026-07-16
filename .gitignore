@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.coverage
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+*.mp4
+*.mov
+*.mkv
+*.avi
+!tests/fixtures/*.mp4
+.remember/
+.superpowers/
+

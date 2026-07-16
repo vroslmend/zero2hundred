@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zero2hundred"
+version = "0.1.0"
+description = "Create timed 0-100 km/h videos from dashboard footage."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "zero2hundred contributors" }]
+dependencies = [
+    "numpy>=1.26,<3",
+    "opencv-python-headless>=4.10,<5",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Video :: Conversion",
+]
+
+[project.scripts]
+zero2hundred = "zero2hundred.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
