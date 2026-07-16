@@ -80,6 +80,8 @@ Once the picker opens:
 1. Play or pause the video to get close to the launch area.
 2. Use the arrow keys or the frame controls to find the exact frame. Hold an
    arrow to inspect consecutive frames. Shift+arrows move ten frames at a time.
+   If the gauge is small, press Z for Gauge view and drag the video to position
+   it. Reset view returns to the default gauge position.
 3. Press L to mark the launch.
 4. Play or step to the exact frame where the speedometer reaches 100.
 5. Press H to mark 100 km/h.

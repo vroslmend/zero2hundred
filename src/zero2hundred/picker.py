@@ -300,12 +300,17 @@ def render_picker_html(video_name: str) -> str:
     transform: scale(1);
     transform-origin: center bottom;
   }}
-  .stage.gauge-view video {{ transform: scale(1.55); }}
-  #viewMode {{
+  .stage.gauge-view video {{ cursor: grab; touch-action: none; }}
+  .stage.dragging video {{ cursor: grabbing; }}
+  .view-controls {{
     position: absolute;
     z-index: 2;
     top: 12px;
     right: 12px;
+    display: flex;
+    gap: 6px;
+  }}
+  .view-controls button {{
     min-height: 36px;
     border-color: rgba(255, 255, 255, .24);
     background: rgba(9, 11, 12, .82);
@@ -313,6 +318,7 @@ def render_picker_html(video_name: str) -> str:
     color: #fff;
     font-size: 12.5px;
   }}
+  [hidden] {{ display: none !important; }}
   #picker {{
     display: grid;
     grid-template-columns: minmax(0, 1fr) 290px;
@@ -420,6 +426,11 @@ def render_picker_html(video_name: str) -> str:
     color: var(--soft);
     font: 600 11px/1 var(--font-ui);
     white-space: nowrap;
+  }}
+  .action-label {{
+    color: var(--soft);
+    font-size: 11.5px;
+    font-weight: 650;
   }}
   .timing-panel {{
     display: flex;
@@ -589,7 +600,10 @@ def render_picker_html(video_name: str) -> str:
   <section class="viewer" aria-label="Video and frame controls">
     <div class="stage">
       <video id="video" src="/video" preload="metadata" playsinline aria-label="Video preview"></video>
-      <button id="viewMode" type="button" aria-pressed="false">Gauge view</button>
+      <div class="view-controls">
+        <button id="resetView" type="button" hidden>Reset view</button>
+        <button id="viewMode" type="button" aria-pressed="false">Gauge view</button>
+      </div>
     </div>
     <div class="transport">
       <div class="transport-data">
@@ -608,6 +622,7 @@ def render_picker_html(video_name: str) -> str:
         <span class="shortcut"><kbd>← →</kbd><span>Tap for one frame, hold to move</span></span>
         <span class="shortcut"><kbd>Shift</kbd><span>Skip ten frames</span></span>
         <span class="shortcut"><kbd>Z</kbd><span>Gauge view</span></span>
+        <span id="gaugeHint" class="shortcut" hidden><span class="action-label">Drag</span><span>Reposition gauge</span></span>
       </div>
     </div>
   </section>
@@ -661,6 +676,8 @@ def render_picker_html(video_name: str) -> str:
   const finishButton = document.getElementById("finish");
   const playPauseButton = document.getElementById("playPause");
   const viewModeButton = document.getElementById("viewMode");
+  const resetViewButton = document.getElementById("resetView");
+  const gaugeHint = document.getElementById("gaugeHint");
   const stage = document.querySelector(".stage");
   const statusEl = document.getElementById("status");
   let times = [];
@@ -678,6 +695,18 @@ def render_picker_html(video_name: str) -> str:
   let heldStep = 0;
   let heldKey = null;
   let holdTimer = null;
+  const GAUGE_SCALE = 1.8;
+  const DRAG_THRESHOLD = 4;
+  let gaugeEnabled = false;
+  let gaugePanX = 0;
+  let gaugePanY = 0;
+  let dragPointerId = null;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let dragOriginX = 0;
+  let dragOriginY = 0;
+  let dragMoved = false;
+  let suppressVideoClick = false;
   let finished = false;
 
   function nearestIndex(value) {{
@@ -791,10 +820,71 @@ def render_picker_html(video_name: str) -> str:
     else video.pause();
   }}
 
+  function clampGaugePan() {{
+    const range = (GAUGE_SCALE - 1) / 2;
+    const maxX = stage.clientWidth * range;
+    const maxY = stage.clientHeight * range;
+    gaugePanX = Math.max(-maxX, Math.min(maxX, gaugePanX));
+    gaugePanY = Math.max(-maxY, Math.min(maxY, gaugePanY));
+  }}
+
+  function applyGaugeView() {{
+    clampGaugePan();
+    video.style.transform = gaugeEnabled
+      ? "translate3d(" + gaugePanX + "px," + gaugePanY + "px,0) scale(" + GAUGE_SCALE + ")"
+      : "scale(1)";
+  }}
+
+  function resetGaugeView() {{
+    gaugePanX = 0;
+    gaugePanY = 0;
+    applyGaugeView();
+  }}
+
   function toggleViewMode() {{
-    const enabled = stage.classList.toggle("gauge-view");
-    viewModeButton.textContent = enabled ? "Fit video" : "Gauge view";
-    viewModeButton.setAttribute("aria-pressed", String(enabled));
+    gaugeEnabled = !gaugeEnabled;
+    stage.classList.toggle("gauge-view", gaugeEnabled);
+    viewModeButton.textContent = gaugeEnabled ? "Fit video" : "Gauge view";
+    viewModeButton.setAttribute("aria-pressed", String(gaugeEnabled));
+    resetViewButton.hidden = !gaugeEnabled;
+    gaugeHint.hidden = !gaugeEnabled;
+    applyGaugeView();
+  }}
+
+  function startGaugeDrag(event) {{
+    if (!gaugeEnabled || (event.pointerType === "mouse" && event.button !== 0)) return;
+    dragPointerId = event.pointerId;
+    dragStartX = event.clientX;
+    dragStartY = event.clientY;
+    dragOriginX = gaugePanX;
+    dragOriginY = gaugePanY;
+    dragMoved = false;
+    video.setPointerCapture(event.pointerId);
+  }}
+
+  function moveGaugeDrag(event) {{
+    if (event.pointerId !== dragPointerId) return;
+    const deltaX = event.clientX - dragStartX;
+    const deltaY = event.clientY - dragStartY;
+    if (!dragMoved && Math.hypot(deltaX, deltaY) < DRAG_THRESHOLD) return;
+    dragMoved = true;
+    stage.classList.add("dragging");
+    gaugePanX = dragOriginX + deltaX;
+    gaugePanY = dragOriginY + deltaY;
+    applyGaugeView();
+    event.preventDefault();
+  }}
+
+  function finishGaugeDrag(event, cancelled) {{
+    if (event.pointerId !== dragPointerId) return;
+    if (video.hasPointerCapture(event.pointerId)) video.releasePointerCapture(event.pointerId);
+    dragPointerId = null;
+    stage.classList.remove("dragging");
+    if (dragMoved && !cancelled) {{
+      suppressVideoClick = true;
+      setTimeout(function () {{ suppressVideoClick = false; }}, 0);
+    }}
+    dragMoved = false;
   }}
 
   function updateFinish() {{
@@ -836,9 +926,21 @@ def render_picker_html(video_name: str) -> str:
   document.getElementById("stepBack").addEventListener("click", function () {{ requestIndex(requestedIndex - 1); }});
   playPauseButton.addEventListener("click", togglePlayback);
   viewModeButton.addEventListener("click", toggleViewMode);
+  resetViewButton.addEventListener("click", resetGaugeView);
   document.getElementById("stepForward").addEventListener("click", function () {{ requestIndex(requestedIndex + 1); }});
   document.getElementById("stepForwardTen").addEventListener("click", function () {{ requestIndex(requestedIndex + 10); }});
-  video.addEventListener("click", togglePlayback);
+  video.addEventListener("pointerdown", startGaugeDrag);
+  video.addEventListener("pointermove", moveGaugeDrag);
+  video.addEventListener("pointerup", function (event) {{ finishGaugeDrag(event, false); }});
+  video.addEventListener("pointercancel", function (event) {{ finishGaugeDrag(event, true); }});
+  video.addEventListener("click", function (event) {{
+    if (suppressVideoClick) {{
+      event.preventDefault();
+      suppressVideoClick = false;
+      return;
+    }}
+    togglePlayback();
+  }});
   video.addEventListener("play", function () {{ playPauseButton.textContent = "Pause"; }});
   video.addEventListener("pause", function () {{ playPauseButton.textContent = "Play"; }});
   video.addEventListener("seeking", function () {{
@@ -884,6 +986,9 @@ def render_picker_html(video_name: str) -> str:
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") stopHeldStep(event.key);
   }});
   window.addEventListener("blur", function () {{ stopHeldStep(); }});
+  window.addEventListener("resize", function () {{
+    if (gaugeEnabled) applyGaugeView();
+  }});
 
   finishButton.addEventListener("click", async function () {{
     finishButton.disabled = true;
