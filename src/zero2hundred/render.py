@@ -29,8 +29,11 @@ class RenderJob:
 
     @property
     def output_duration(self) -> float:
-        end = _resolve_clip_end(self.media, self.events, self.clip_end)
-        content = (end - self.events.launch) if self.trim_intro else end
+        freeze_at = _resolve_clip_end(self.media, self.events, self.clip_end)
+        if _continues_after_freeze(self.media, self.settings, freeze_at):
+            content = self.media.duration - (self.events.launch if self.trim_intro else 0.0)
+        else:
+            content = freeze_at - (self.events.launch if self.trim_intro else 0.0)
         return content + self.settings.freeze_duration
 
     def command(self) -> list[str]:
@@ -41,12 +44,18 @@ class RenderJob:
             trim_intro=self.trim_intro,
             clip_end=self.clip_end,
         )
+        freeze_at = _resolve_clip_end(self.media, self.events, self.clip_end)
+        input_end = (
+            self.media.duration
+            if _continues_after_freeze(self.media, self.settings, freeze_at)
+            else freeze_at
+        )
         command = [
             self.toolchain.ffmpeg,
             "-hide_banner",
             "-y" if self.overwrite else "-n",
             "-to",
-            f"{_resolve_clip_end(self.media, self.events, self.clip_end):.6f}",
+            f"{input_end:.6f}",
             "-i",
             str(self.media.path),
             "-filter_complex",
@@ -133,7 +142,7 @@ def build_filter_graph(
 ) -> str:
     clip_start = events.launch if trim_intro else 0.0
     timer_start = 0.0 if trim_intro else events.launch
-    trim_end = _resolve_clip_end(media, events, clip_end)
+    freeze_at = _resolve_clip_end(media, events, clip_end)
 
     timer_style = settings.timer_style or settings.timer_format
     timer = _timer_text(timer_start, events.elapsed, timer_style)
@@ -154,22 +163,47 @@ def build_filter_graph(
         video_filters = ["drawtext=" + ":".join(drawtext_options)]
     else:
         video_filters = _overlay_filters(settings, font_option, timer)
-    video_chain = (
-        f"[0:v]trim=start={clip_start:.6f}:end={trim_end:.6f},"
+    timed_video = (
+        f"[0:v]trim=start={clip_start:.6f}:end={freeze_at:.6f},"
         f"setpts=PTS-STARTPTS,fps=fps={media.frame_rate:.6f},"
         f"{','.join(video_filters)},"
-        f"tpad=stop_mode=clone:stop_duration={settings.freeze_duration:.6f}[video]"
+        f"tpad=stop_mode=clone:stop_duration={settings.freeze_duration:.6f}"
     )
 
+    if not _continues_after_freeze(media, settings, freeze_at):
+        video_chain = timed_video + "[video]"
+        if not media.has_audio:
+            return video_chain
+
+        audio_chain = (
+            f"[0:a]atrim=start={clip_start:.6f}:end={freeze_at:.6f},"
+            "asetpts=PTS-STARTPTS,"
+            f"apad=pad_dur={settings.freeze_duration:.6f}[audio]"
+        )
+        return f"{video_chain};{audio_chain}"
+
+    timed_video += "[timed_video]"
+    tail_video = (
+        f"[0:v]trim=start={freeze_at:.6f}:end={media.duration:.6f},"
+        f"setpts=PTS-STARTPTS,fps=fps={media.frame_rate:.6f}[tail_video]"
+    )
     if not media.has_audio:
-        return video_chain
+        concat = "[timed_video][tail_video]concat=n=2:v=1:a=0[video]"
+        return f"{timed_video};{tail_video};{concat}"
 
-    audio_chain = (
-        f"[0:a]atrim=start={clip_start:.6f}:end={trim_end:.6f},"
-        "asetpts=PTS-STARTPTS,"
-        f"apad=pad_dur={settings.freeze_duration:.6f}[audio]"
+    timed_audio = (
+        f"[0:a]atrim=start={clip_start:.6f}:end={freeze_at:.6f},"
+        "asetpts=PTS-STARTPTS[timed_audio]"
     )
-    return f"{video_chain};{audio_chain}"
+    tail_audio = (
+        f"[0:a]atrim=start={freeze_at:.6f}:end={media.duration:.6f},"
+        "asetpts=PTS-STARTPTS[tail_audio]"
+    )
+    concat = (
+        "[timed_video][timed_audio][tail_video][tail_audio]"
+        "concat=n=2:v=1:a=1[video][audio]"
+    )
+    return ";".join((timed_video, timed_audio, tail_video, tail_audio, concat))
 
 
 def _timer_text(timer_start: float, elapsed: float, style: str) -> str:
@@ -558,6 +592,12 @@ def _normalized_color(value: str) -> str:
 
 def _escape_filter_value(value: str) -> str:
     return value.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+
+
+def _continues_after_freeze(
+    media: MediaInfo, settings: RenderSettings, freeze_at: float
+) -> bool:
+    return settings.continue_after_freeze and freeze_at < media.duration
 
 
 def _resolve_clip_end(media: MediaInfo, events: EventWindow, clip_end: float | None) -> float:

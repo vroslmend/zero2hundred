@@ -23,6 +23,7 @@ OVERLAY_STYLES = ("type-only", "quiet-plate", "compact")
 @dataclass(frozen=True, slots=True)
 class RenderSettings:
     freeze_duration: float = 2.0
+    continue_after_freeze: bool = True
     position: str = "bottom-center"
     overlay_style: str = "type-only"
     bottom_clearance_ratio: float = 0.16
@@ -47,6 +48,8 @@ class RenderSettings:
     def validated(self) -> "RenderSettings":
         if self.freeze_duration < 0:
             raise ConfigurationError("freeze_duration cannot be negative")
+        if not isinstance(self.continue_after_freeze, bool):
+            raise ConfigurationError("continue_after_freeze must be true or false")
         if self.position not in POSITIONS:
             allowed = ", ".join(POSITIONS)
             raise ConfigurationError(f"position must be one of: {allowed}")

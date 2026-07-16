@@ -88,6 +88,11 @@ Once the picker opens:
 8. Go back to the terminal. It renders automatically and saves
    `run_0-100.mp4` next to the original.
 
+By default, the selected 100 km/h frame holds for two seconds with the final
+time visible. The timer then disappears and the original video and audio
+continue normally to the end. Add `--end-after-freeze` if you want the output
+to end on the frozen result instead.
+
 Closing the picker tab before pressing Finish cancels the run. You can also
 press Ctrl+C in the terminal to cancel. The local server and temporary picker
 files are cleaned up in both cases.
@@ -110,7 +115,8 @@ input                  Video to process
 --end TIME             100 km/h timestamp
 --pick                 Mark exact frames in the browser
 -o, --output PATH      Where to save the result
---freeze SECONDS       How long the final frame holds
+--freeze SECONDS       How long the 100 km/h frame holds
+--end-after-freeze     End the output on the frozen result
 --position POSITION    top-left, top-center, top-right,
                        bottom-left, bottom-center, bottom-right
 --font NAME            Timer font family
@@ -131,6 +137,7 @@ Anything you pass on the command line wins over the TOML file:
 
 ```toml
 freeze_duration = 2.0
+continue_after_freeze = true
 position = "bottom-center"
 overlay_style = "type-only"       # type-only, quiet-plate, or compact
 bottom_clearance_ratio = 0.16

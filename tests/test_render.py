@@ -40,7 +40,10 @@ class RenderGraphTests(unittest.TestCase):
             graph,
         )
         self.assertIn("tpad=stop_mode=clone:stop_duration=2.000000", graph)
-        self.assertIn("apad=pad_dur=2.000000", graph)
+        self.assertIn("trim=start=10.033333:end=20.000000", graph)
+        self.assertIn("atrim=start=10.033333:end=20.000000", graph)
+        self.assertIn("concat=n=2:v=1:a=1[video][audio]", graph)
+        self.assertNotIn("apad=", graph)
 
     def test_hms_style_keeps_previous_behavior(self) -> None:
         graph = build_filter_graph(
@@ -109,6 +112,8 @@ class RenderGraphTests(unittest.TestCase):
         )
         self.assertIn("trim=start=0.000000:end=10.123456", graph)
         self.assertIn("atrim=start=0.000000:end=10.123456", graph)
+        self.assertIn("trim=start=10.123456:end=20.000000", graph)
+        self.assertIn("atrim=start=10.123456:end=20.000000", graph)
 
     def test_none_clip_end_preserves_average_frame_fallback(self) -> None:
         graph = build_filter_graph(
@@ -120,6 +125,51 @@ class RenderGraphTests(unittest.TestCase):
         expected_end = self.events.reached_100 + self.media.frame_duration
         self.assertIn(f"trim=start=0.000000:end={expected_end:.6f}", graph)
         self.assertIn(f"atrim=start=0.000000:end={expected_end:.6f}", graph)
+
+    def test_end_after_freeze_keeps_the_short_output_graph(self) -> None:
+        graph = build_filter_graph(
+            self.media,
+            self.events,
+            RenderSettings(continue_after_freeze=False),
+            trim_intro=False,
+            clip_end=10.123456,
+        )
+
+        self.assertNotIn("concat=", graph)
+        self.assertNotIn("trim=start=10.123456:end=20.000000", graph)
+        self.assertIn("apad=pad_dur=2.000000[audio]", graph)
+
+    def test_zero_duration_freeze_still_continues_without_the_overlay(self) -> None:
+        graph = build_filter_graph(
+            self.media,
+            self.events,
+            RenderSettings(freeze_duration=0),
+            trim_intro=False,
+            clip_end=10.123456,
+        )
+
+        self.assertIn("tpad=stop_mode=clone:stop_duration=0.000000", graph)
+        self.assertIn("concat=n=2:v=1:a=1[video][audio]", graph)
+
+    def test_video_without_audio_uses_video_only_concat(self) -> None:
+        media = MediaInfo(
+            path=Path("silent.mp4"),
+            duration=20,
+            width=1920,
+            height=1080,
+            frame_rate=30,
+            has_audio=False,
+        )
+        graph = build_filter_graph(
+            media,
+            self.events,
+            RenderSettings(),
+            trim_intro=False,
+            clip_end=10.123456,
+        )
+
+        self.assertIn("concat=n=2:v=1:a=0[video]", graph)
+        self.assertNotIn("[0:a]", graph)
 
 
 class RenderJobClipEndTests(unittest.TestCase):
@@ -135,26 +185,43 @@ class RenderJobClipEndTests(unittest.TestCase):
         self.events = EventWindow(launch=4.0, reached_100=10.0)
         self.toolchain = Toolchain(ffmpeg="ffmpeg", ffprobe="ffprobe")
 
-    def _job(self, clip_end: float | None) -> RenderJob:
+    def _job(
+        self,
+        clip_end: float | None,
+        *,
+        continue_after_freeze: bool = True,
+        trim_intro: bool = False,
+    ) -> RenderJob:
         return RenderJob(
             media=self.media,
             events=self.events,
             output=Path("out.mp4"),
-            settings=RenderSettings(),
+            settings=RenderSettings(continue_after_freeze=continue_after_freeze),
             toolchain=self.toolchain,
+            trim_intro=trim_intro,
             clip_end=clip_end,
         )
 
-    def test_explicit_clip_end_used_for_to_argument(self) -> None:
+    def test_continuing_reads_the_full_input(self) -> None:
         command = self._job(10.123456).command()
+        index = command.index("-to")
+        self.assertEqual(command[index + 1], "20.000000")
+
+    def test_end_after_freeze_stops_input_at_the_split(self) -> None:
+        command = self._job(10.123456, continue_after_freeze=False).command()
         index = command.index("-to")
         self.assertEqual(command[index + 1], "10.123456")
 
-    def test_none_clip_end_preserves_average_frame_fallback(self) -> None:
-        command = self._job(None).command()
-        index = command.index("-to")
-        expected = self.events.reached_100 + self.media.frame_duration
-        self.assertEqual(command[index + 1], f"{expected:.6f}")
+    def test_output_duration_includes_the_tail_and_freeze(self) -> None:
+        self.assertEqual(self._job(10.123456).output_duration, 22.0)
+        self.assertEqual(
+            self._job(10.123456, trim_intro=True).output_duration,
+            18.0,
+        )
+
+    def test_short_output_duration_ends_after_the_freeze(self) -> None:
+        job = self._job(10.123456, continue_after_freeze=False)
+        self.assertAlmostEqual(job.output_duration, 12.123456)
 
 
 if __name__ == "__main__":

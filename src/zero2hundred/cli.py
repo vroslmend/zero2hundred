@@ -34,6 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--font-file", help="path to a timer font file")
     parser.add_argument("--trim-intro", action="store_true", help="start output at launch")
     parser.add_argument(
+        "--end-after-freeze",
+        action="store_true",
+        help="end the video after the frozen result instead of continuing",
+    )
+    parser.add_argument(
         "--pick",
         action="store_true",
         help="open a frame picker in the browser to find exact times",
@@ -116,6 +121,8 @@ def main(argv: list[str] | None = None) -> int:
             overrides["font"] = args.font
         if args.font_file is not None:
             overrides["font_file"] = args.font_file
+        if args.end_after_freeze:
+            overrides["continue_after_freeze"] = False
         settings = replace(settings, **overrides).validated()
 
         preferred_output = args.output or default_output_path(input_path)
@@ -143,6 +150,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  Launch      {format_timecode(events.launch)}")
         print(f"  100 km/h    {format_timecode(events.reached_100)}")
         print(f"  Time        {events.elapsed:.3f} seconds")
+        ending = (
+            "Continue after freeze"
+            if settings.continue_after_freeze
+            else "End after freeze"
+        )
+        print(f"  Ending      {ending}")
         print(f"  Output      {output}")
 
         if args.dry_run:

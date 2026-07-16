@@ -10,6 +10,7 @@ class ConfigTests(unittest.TestCase):
     def test_defaults_are_valid(self) -> None:
         self.assertEqual(load_settings(None), RenderSettings())
         self.assertEqual(RenderSettings().overlay_style, "type-only")
+        self.assertTrue(RenderSettings().continue_after_freeze)
         self.assertEqual(RenderSettings().bottom_clearance_ratio, 0.16)
         self.assertEqual(RenderSettings().overlay_scale, 1.0)
         self.assertEqual(RenderSettings().timer_format, "seconds")
@@ -67,6 +68,8 @@ class ConfigTests(unittest.TestCase):
             RenderSettings(bottom_clearance_ratio=0.6).validated()
         with self.assertRaises(ConfigurationError):
             RenderSettings(overlay_scale=0.2).validated()
+        with self.assertRaises(ConfigurationError):
+            RenderSettings(continue_after_freeze="yes").validated()  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":
