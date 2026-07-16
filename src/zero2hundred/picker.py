@@ -631,6 +631,257 @@ def render_picker_html(video_name: str) -> str:
 """
 
 
+def render_calibration_html(video_name: str) -> str:
+    """Return the local gauge calibration page."""
+    safe_name = html.escape(video_name)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gauge calibration | {safe_name}</title>
+<style>
+  :root {{ color-scheme: dark; --bg: #080a0d; --panel: #11151a; --line: #303945;
+    --text: #eef1f4; --muted: #98a2ad; --accent: #f1ad3d; --ok: #76c893; }}
+  * {{ box-sizing: border-box; }}
+  body {{ margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", Arial, sans-serif; }}
+  header {{ display: flex; justify-content: space-between; gap: 16px; padding: 14px 20px;
+    border-bottom: 1px solid var(--line); background: var(--panel); }}
+  h1 {{ margin: 0; overflow: hidden; font-size: 16px; text-overflow: ellipsis;
+    white-space: nowrap; }}
+  header span {{ color: var(--muted); font: 11px Consolas, monospace; text-transform: uppercase; }}
+  main {{ display: grid; justify-items: center; gap: 14px; padding: 18px; }}
+  #frame {{ position: relative; display: inline-block; max-width: 100%; line-height: 0; }}
+  video {{ display: block; width: auto; max-width: 100%; max-height: 72vh; background: #000;
+    box-shadow: 0 0 0 1px var(--line), 0 18px 55px rgba(0,0,0,.45); }}
+  canvas {{ position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }}
+  #time {{ font: 700 clamp(34px, 5vw, 56px) Consolas, monospace;
+    font-variant-numeric: tabular-nums; }}
+  #instruction {{ margin: 0; color: var(--accent); font-size: 18px; font-weight: 650; }}
+  #steps {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }}
+  .step {{ border: 1px solid var(--line); border-radius: 4px; padding: 8px 11px;
+    background: var(--panel); color: var(--muted); }}
+  .step.active {{ border-color: var(--accent); color: var(--accent); }}
+  .step.done {{ color: var(--ok); }}
+  #actions {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }}
+  button {{ min-height: 40px; border: 1px solid var(--line); border-radius: 4px;
+    padding: 8px 14px; background: #191f26; color: var(--text); font-weight: 650;
+    cursor: pointer; }}
+  button:disabled {{ cursor: not-allowed; opacity: .4; }}
+  #finish {{ border-color: var(--accent); background: var(--accent); color: #171006; }}
+  #hint, #status {{ margin: 0; color: var(--muted); font-size: 12px; text-align: center; }}
+  #status {{ min-height: 16px; color: var(--ok); }}
+  .done-page {{ display: grid; min-height: 100vh; place-items: center; padding: 30px;
+    color: var(--ok); font: 700 clamp(24px, 5vw, 48px) Consolas, monospace; text-align: center; }}
+</style>
+</head>
+<body>
+<header><h1>{safe_name}</h1><span>Gauge calibration</span></header>
+<main>
+  <div id="frame">
+    <video id="video" src="/video" preload="metadata" playsinline></video>
+    <canvas id="overlay" aria-label="Gauge calibration points"></canvas>
+  </div>
+  <div id="time">0.000</div>
+  <p id="instruction">Choose a stopped frame, then click the needle pivot</p>
+  <div id="steps">
+    <div class="step" data-step="0">1. Click the needle pivot</div>
+    <div class="step" data-step="1">2. Click the needle tip at zero</div>
+    <div class="step" data-step="2">3. Click the 100 km/h mark</div>
+  </div>
+  <div id="actions">
+    <button id="undo" type="button" disabled>Undo point</button>
+    <button id="reset" type="button" disabled>Reset</button>
+    <button id="finish" type="button" disabled>Finish calibration</button>
+  </div>
+  <p id="hint">Space: play/pause &nbsp; Arrows: 1 frame &nbsp; Shift+arrows: 10 frames &nbsp; Home/End: first/last</p>
+  <p id="status" role="status"></p>
+</main>
+<script>
+  "use strict";
+  const video = document.getElementById("video");
+  const canvas = document.getElementById("overlay");
+  const context = canvas.getContext("2d");
+  const timeEl = document.getElementById("time");
+  const instructionEl = document.getElementById("instruction");
+  const statusEl = document.getElementById("status");
+  const undoButton = document.getElementById("undo");
+  const resetButton = document.getElementById("reset");
+  const finishButton = document.getElementById("finish");
+  const instructions = [
+    "Click the needle pivot",
+    "Click the needle tip at zero",
+    "Click the 100 km/h mark",
+    "Calibration points ready"
+  ];
+  const colors = ["#f1ad3d", "#76c893", "#64b5f6"];
+  let times = [];
+  let selected = 0;
+  let points = [];
+  let calibrationFrame = null;
+  let finished = false;
+
+  function nearestIndex(value) {{
+    let low = 0;
+    let high = times.length - 1;
+    while (low < high) {{
+      const middle = Math.floor((low + high) / 2);
+      if (times[middle] < value) low = middle + 1;
+      else high = middle;
+    }}
+    if (low > 0 && Math.abs(times[low - 1] - value) <= Math.abs(times[low] - value)) return low - 1;
+    return low;
+  }}
+
+  function requestIndex(index) {{
+    if (!times.length) return;
+    if (points.length) resetPoints("Points reset because the frame changed.");
+    selected = Math.max(0, Math.min(times.length - 1, index));
+    video.pause();
+    video.currentTime = times[selected] + 0.002;
+    timeEl.textContent = times[selected].toFixed(3);
+  }}
+
+  function sizeCanvas() {{
+    const rect = video.getBoundingClientRect();
+    const scale = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round(rect.width * scale));
+    canvas.height = Math.max(1, Math.round(rect.height * scale));
+    drawPoints();
+  }}
+
+  function drawPoints() {{
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.lineWidth = Math.max(2, canvas.width / 300);
+    if (points.length > 1) {{
+      context.strokeStyle = "rgba(241,173,61,.8)";
+      for (let index = 1; index < points.length; index += 1) {{
+        context.beginPath();
+        context.moveTo(points[0][0] * canvas.width, points[0][1] * canvas.height);
+        context.lineTo(points[index][0] * canvas.width, points[index][1] * canvas.height);
+        context.stroke();
+      }}
+    }}
+    points.forEach(function (point, index) {{
+      context.beginPath();
+      context.fillStyle = colors[index];
+      context.strokeStyle = "#080a0d";
+      context.arc(point[0] * canvas.width, point[1] * canvas.height,
+        Math.max(6, canvas.width / 90), 0, Math.PI * 2);
+      context.fill();
+      context.stroke();
+    }});
+  }}
+
+  function updateState() {{
+    instructionEl.textContent = instructions[points.length];
+    document.querySelectorAll(".step").forEach(function (step, index) {{
+      step.classList.toggle("done", index < points.length);
+      step.classList.toggle("active", index === points.length);
+    }});
+    undoButton.disabled = points.length === 0;
+    resetButton.disabled = points.length === 0;
+    finishButton.disabled = points.length !== 3;
+    drawPoints();
+  }}
+
+  function resetPoints(message) {{
+    points = [];
+    calibrationFrame = null;
+    statusEl.textContent = message || "";
+    updateState();
+  }}
+
+  canvas.addEventListener("click", function (event) {{
+    if (!times.length || points.length === 3) return;
+    video.pause();
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+    if (points.length === 0) calibrationFrame = times[selected];
+    points.push([x, y]);
+    statusEl.textContent = "";
+    updateState();
+  }});
+
+  undoButton.addEventListener("click", function () {{
+    points.pop();
+    if (!points.length) calibrationFrame = null;
+    statusEl.textContent = "";
+    updateState();
+  }});
+  resetButton.addEventListener("click", function () {{ resetPoints(""); }});
+  video.addEventListener("loadedmetadata", sizeCanvas);
+  video.addEventListener("resize", sizeCanvas);
+  window.addEventListener("resize", sizeCanvas);
+  video.addEventListener("seeked", function () {{
+    if (!times.length) return;
+    selected = nearestIndex(video.currentTime);
+    timeEl.textContent = times[selected].toFixed(3);
+  }});
+
+  document.addEventListener("keydown", function (event) {{
+    let destination = null;
+    if (event.key === "ArrowLeft") destination = selected + (event.shiftKey ? -10 : -1);
+    else if (event.key === "ArrowRight") destination = selected + (event.shiftKey ? 10 : 1);
+    else if (event.key === "Home") destination = 0;
+    else if (event.key === "End") destination = times.length - 1;
+    else if (event.code === "Space") {{
+      event.preventDefault();
+      if (points.length) resetPoints("Points reset before playback.");
+      if (video.paused) video.play().catch(function () {{}});
+      else video.pause();
+      return;
+    }} else return;
+    event.preventDefault();
+    requestIndex(destination);
+  }});
+
+  finishButton.addEventListener("click", async function () {{
+    finishButton.disabled = true;
+    statusEl.textContent = "Sending calibration...";
+    try {{
+      const response = await fetch("/calibrate", {{
+        method: "POST",
+        headers: {{"Content-Type": "application/json"}},
+        body: JSON.stringify({{
+          pivot: points[0], zero: points[1], hundred: points[2], frame: calibrationFrame
+        }})
+      }});
+      if (!response.ok) throw new Error("Calibration was not accepted.");
+      finished = true;
+      document.body.innerHTML = '<div class="done-page">Calibration saved. Back to the terminal.</div>';
+    }} catch (error) {{
+      statusEl.textContent = "Could not send calibration. Press Finish calibration to try again.";
+      updateState();
+    }}
+  }});
+
+  window.addEventListener("pagehide", function () {{
+    if (!finished && navigator.sendBeacon) navigator.sendBeacon("/cancel");
+  }});
+
+  async function loadTimes() {{
+    try {{
+      const response = await fetch("/times");
+      if (!response.ok) throw new Error("Frame times unavailable.");
+      times = await response.json();
+      if (!times.length) throw new Error("No frame times found.");
+      requestIndex(0);
+      updateState();
+    }} catch (error) {{
+      statusEl.textContent = "Could not load frame times. Close this page and try again.";
+    }}
+  }}
+
+  loadTimes();
+</script>
+</body>
+</html>
+"""
+
+
 class _PickerServer:
     """Serve one picker session on a loopback-only ephemeral port."""
 
@@ -813,6 +1064,56 @@ class _PickerServer:
         cls._send_bytes(handler, status, payload, "application/json")
 
 
+class _CalibrationServer(_PickerServer):
+    """Serve one gauge calibration session on the loopback interface."""
+
+    def __init__(
+        self,
+        video_path: Path,
+        workdir: Path,
+        times: list[float],
+        *,
+        video_name: str | None = None,
+    ) -> None:
+        super().__init__(video_path, workdir, times, video_name=video_name)
+        self.calibration_result = None
+
+    def _handle_get(self, handler: BaseHTTPRequestHandler) -> None:
+        path = unquote(urlsplit(handler.path).path)
+        if path == "/":
+            payload = render_calibration_html(self.video_name).encode("utf-8")
+            self._send_bytes(handler, 200, payload, "text/html; charset=utf-8")
+            return
+        super()._handle_get(handler)
+
+    def _handle_post(self, handler: BaseHTTPRequestHandler) -> None:
+        path = unquote(urlsplit(handler.path).path)
+        if path == "/cancel":
+            super()._handle_post(handler)
+            return
+        if path != "/calibrate":
+            handler.send_error(404)
+            return
+
+        try:
+            length = int(handler.headers.get("Content-Length", ""))
+            if length < 0 or length > 64 * 1024:
+                raise ValueError
+            raw = handler.rfile.read(length)
+            from zero2hundred.detect.needle import Calibration
+
+            calibration = Calibration.from_json(raw.decode("utf-8"))
+        except (TypeError, ValueError, UnicodeDecodeError):
+            self._send_json(handler, 400, {"ok": False})
+            return
+
+        self.calibration_result = calibration
+        try:
+            self._send_json(handler, 200, {"ok": True})
+        finally:
+            self.result_event.set()
+
+
 def _valid_mark(value: object) -> bool:
     return (
         isinstance(value, (int, float))
@@ -840,6 +1141,34 @@ def _parse_byte_range(value: str, size: int) -> tuple[int, int] | None:
     if end < start:
         return None
     return start, end
+
+
+def serve_calibration(
+    path: Path,
+    toolchain: Toolchain,
+    times: list[float],
+    workdir: Path,
+) -> "Calibration":
+    """Open a local gauge calibration page and return its three marked points."""
+    browser_video = prepare_browser_video(path, toolchain, workdir)
+    server = _CalibrationServer(
+        browser_video,
+        workdir,
+        times,
+        video_name=path.name,
+    )
+    server.start()
+    try:
+        webbrowser.open(server.url)
+        while not server.result_event.wait(0.1):
+            pass
+        if server.cancelled:
+            raise KeyboardInterrupt
+        if server.calibration_result is None:
+            raise MediaError("calibration page closed without returning points")
+        return server.calibration_result
+    finally:
+        server.stop()
 
 
 def serve_picker(

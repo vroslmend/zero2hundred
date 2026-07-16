@@ -9,12 +9,16 @@ import unittest
 from unittest import mock
 
 from zero2hundred.errors import MediaError
+from zero2hundred.detect.needle import Calibration
 from zero2hundred.media import Toolchain
 from zero2hundred.picker import (
+    _CalibrationServer,
     _PickerServer,
     extract_thumbnails,
     prepare_browser_video,
+    render_calibration_html,
     render_picker_html,
+    serve_calibration,
     serve_picker,
     thumbnail_indices,
 )
@@ -208,6 +212,29 @@ class RenderPickerHtmlTests(unittest.TestCase):
         self.assertIn("&lt;video onload=&quot;bad&quot;&gt;.mp4", text)
 
 
+class RenderCalibrationHtmlTests(unittest.TestCase):
+    def test_renders_click_steps_video_timing_and_local_submission(self) -> None:
+        text = render_calibration_html("sample_video.mp4")
+
+        self.assertIn("sample_video.mp4", text)
+        self.assertIn('<video id="video" src="/video"', text)
+        self.assertIn('<canvas id="overlay"', text)
+        self.assertIn('fetch("/times")', text)
+        self.assertIn("Click the needle pivot", text)
+        self.assertIn("Click the needle tip at zero", text)
+        self.assertIn("Click the 100 km/h mark", text)
+        self.assertIn('fetch("/calibrate"', text)
+        self.assertIn('navigator.sendBeacon("/cancel")', text)
+        self.assertNotIn("http://", text)
+        self.assertNotIn("https://", text)
+
+    def test_escapes_video_name(self) -> None:
+        text = render_calibration_html('<script class="bad">.mp4')
+
+        self.assertNotIn('<script class="bad">.mp4', text)
+        self.assertIn("&lt;script class=&quot;bad&quot;&gt;.mp4", text)
+
+
 class PickerServerIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -296,6 +323,93 @@ class PickerServerIntegrationTests(unittest.TestCase):
         self.assertFalse(self.server.result_event.is_set())
         self.assertIsNone(self.server.result)
 
+
+class CalibrationServerIntegrationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.workdir = Path(self.tempdir.name)
+        self.video_path = self.workdir / "video.mp4"
+        self.video_path.write_bytes(bytes(range(250)) * 4)
+        self.server = _CalibrationServer(
+            self.video_path,
+            self.workdir,
+            [0.0, 0.5, 1.0],
+        )
+        self.server.start()
+
+    def tearDown(self) -> None:
+        self.server.stop()
+        self.tempdir.cleanup()
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        body: bytes | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> tuple[http.client.HTTPResponse, bytes]:
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", self.server.port, timeout=2
+        )
+        connection.request(method, path, body=body, headers=headers or {})
+        response = connection.getresponse()
+        payload = response.read()
+        connection.close()
+        return response, payload
+
+    def test_serves_calibration_page_and_accepts_normalized_points(self) -> None:
+        response, payload = self.request("GET", "/")
+        self.assertEqual(response.status, 200)
+        self.assertIn(b"Click the needle pivot", payload)
+
+        body = json.dumps(
+            {
+                "pivot": [0.5, 0.6],
+                "zero": [0.2, 0.8],
+                "hundred": [0.8, 0.3],
+                "frame": 0.5,
+            }
+        ).encode("utf-8")
+        response, payload = self.request(
+            "POST",
+            "/calibrate",
+            body=body,
+            headers={"Content-Type": "application/json", "Content-Length": str(len(body))},
+        )
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(payload), {"ok": True})
+        self.assertTrue(self.server.result_event.wait(timeout=1))
+        self.assertEqual(
+            self.server.calibration_result,
+            Calibration(
+                pivot=(0.5, 0.6),
+                zero=(0.2, 0.8),
+                hundred=(0.8, 0.3),
+                frame=0.5,
+            ),
+        )
+
+    def test_rejects_invalid_calibration_without_unblocking(self) -> None:
+        body = json.dumps(
+            {
+                "pivot": [2.0, 0.6],
+                "zero": [0.2, 0.8],
+                "hundred": [0.8, 0.3],
+                "frame": 0.5,
+            }
+        ).encode("utf-8")
+        response, _ = self.request(
+            "POST",
+            "/calibrate",
+            body=body,
+            headers={"Content-Type": "application/json", "Content-Length": str(len(body))},
+        )
+
+        self.assertEqual(response.status, 400)
+        self.assertFalse(self.server.result_event.is_set())
+        self.assertIsNone(self.server.calibration_result)
+
     def test_cancel_unblocks_server_without_a_result(self) -> None:
         response, payload = self.request("POST", "/cancel", body=b"")
 
@@ -304,6 +418,57 @@ class PickerServerIntegrationTests(unittest.TestCase):
         self.assertTrue(self.server.result_event.wait(timeout=1))
         self.assertTrue(self.server.cancelled)
         self.assertIsNone(self.server.result)
+
+
+class ServeCalibrationTests(unittest.TestCase):
+    class FakeServer:
+        instance = None
+
+        def __init__(self, video_path, workdir, times, *, video_name=None):
+            type(self).instance = self
+            self.video_path = video_path
+            self.video_name = video_name
+            self.url = "http://127.0.0.1:12345/"
+            self.calibration_result = Calibration(
+                pivot=(0.5, 0.6),
+                zero=(0.2, 0.8),
+                hundred=(0.8, 0.3),
+                frame=0.5,
+            )
+            self.cancelled = False
+            self.result_event = mock.Mock()
+            self.started = False
+            self.stopped = False
+
+        def start(self):
+            self.started = True
+
+        def stop(self):
+            self.stopped = True
+
+    def test_returns_browser_calibration_and_stops_server(self) -> None:
+        toolchain = Toolchain(ffmpeg="ffmpeg", ffprobe="ffprobe")
+
+        with mock.patch(
+            "zero2hundred.picker.prepare_browser_video",
+            return_value=Path("browser-preview.mp4"),
+        ):
+            with mock.patch(
+                "zero2hundred.picker._CalibrationServer", self.FakeServer
+            ):
+                with mock.patch(
+                    "zero2hundred.picker.webbrowser.open"
+                ) as open_browser:
+                    result = serve_calibration(
+                        Path("input.mp4"), toolchain, [0.0, 0.5], Path("work")
+                    )
+
+        self.assertEqual(result, self.FakeServer.instance.calibration_result)
+        self.assertTrue(self.FakeServer.instance.started)
+        self.assertTrue(self.FakeServer.instance.stopped)
+        self.assertEqual(self.FakeServer.instance.video_name, "input.mp4")
+        self.FakeServer.instance.result_event.wait.assert_called_once_with(0.1)
+        open_browser.assert_called_once_with("http://127.0.0.1:12345/")
 
 
 class ServePickerTests(unittest.TestCase):
