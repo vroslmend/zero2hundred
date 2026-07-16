@@ -104,11 +104,12 @@ def prepare_browser_video(
     path: Path, toolchain: Toolchain, workdir: Path
 ) -> Path:
     """Return `path` when browsers can decode it, otherwise create an H.264 preview."""
-    codec, pixel_format = _browser_video_format(path, toolchain)
+    codec, pixel_format, rotation = _browser_video_format(path, toolchain)
     if (
         path.suffix.lower() in {".mp4", ".m4v"}
         and codec in _BROWSER_SAFE_CODECS
         and pixel_format in _BROWSER_SAFE_PIXEL_FORMATS
+        and rotation % 360 == 0
     ):
         return path
 
@@ -164,7 +165,7 @@ def prepare_browser_video(
     return preview
 
 
-def _browser_video_format(path: Path, toolchain: Toolchain) -> tuple[str, str]:
+def _browser_video_format(path: Path, toolchain: Toolchain) -> tuple[str, str, int]:
     command = [
         toolchain.ffprobe,
         "-v",
@@ -172,7 +173,7 @@ def _browser_video_format(path: Path, toolchain: Toolchain) -> tuple[str, str]:
         "-select_streams",
         "v:0",
         "-show_entries",
-        "stream=codec_name,pix_fmt",
+        "stream=codec_name,pix_fmt:stream_tags=rotate:stream_side_data=rotation",
         "-of",
         "json",
         str(path),
@@ -190,8 +191,19 @@ def _browser_video_format(path: Path, toolchain: Toolchain) -> tuple[str, str]:
         raise MediaError(f"could not inspect video compatibility for {path.name}: {detail}")
     try:
         stream = json.loads(completed.stdout)["streams"][0]
-        return str(stream["codec_name"]).lower(), str(stream["pix_fmt"]).lower()
-    except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        rotation = 0
+        for side_data in stream.get("side_data_list", []):
+            if "rotation" in side_data:
+                rotation = int(float(side_data["rotation"]))
+                break
+        else:
+            rotation = int(float(stream.get("tags", {}).get("rotate", 0)))
+        return (
+            str(stream["codec_name"]).lower(),
+            str(stream["pix_fmt"]).lower(),
+            rotation,
+        )
+    except (IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise MediaError(
             f"could not inspect video compatibility for {path.name}"
         ) from exc
@@ -221,6 +233,8 @@ def render_picker_html(video_name: str) -> str:
     --hundred: #ff6b4a;
     --hundred-dark: #351b16;
     --success: #94c7a4;
+    --font-ui: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
+    --font-display: "Segoe UI Variable Display", "Segoe UI", Arial, sans-serif;
   }}
   * {{ box-sizing: border-box; }}
   body {{
@@ -232,7 +246,7 @@ def render_picker_html(video_name: str) -> str:
     overflow: hidden;
     background: var(--carbon);
     color: var(--ivory);
-    font-family: Bahnschrift, "Arial Narrow", "Segoe UI", sans-serif;
+    font-family: var(--font-ui);
   }}
   button, video {{ -webkit-tap-highlight-color: transparent; }}
   header {{
@@ -247,8 +261,8 @@ def render_picker_html(video_name: str) -> str:
   h1 {{
     margin: 0;
     overflow: hidden;
-    font-size: 16px;
-    font-weight: 650;
+    font-size: 15px;
+    font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
   }}
@@ -256,13 +270,12 @@ def render_picker_html(video_name: str) -> str:
     margin: 0;
     flex: 0 0 auto;
     color: var(--muted);
-    font-family: Consolas, "SFMono-Regular", monospace;
-    font-size: 11px;
-    letter-spacing: .08em;
-    text-transform: uppercase;
+    font-size: 13px;
+    font-weight: 450;
   }}
   main {{ min-height: 0; }}
   .stage {{
+    position: relative;
     display: grid;
     width: 100%;
     min-width: 0;
@@ -273,12 +286,28 @@ def render_picker_html(video_name: str) -> str:
     place-items: center;
   }}
   video {{
+    position: absolute;
+    inset: 0;
     display: block;
-    width: auto;
-    max-width: 100%;
-    max-height: 100%;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
     background: #000;
-    box-shadow: 0 18px 55px rgba(0, 0, 0, .45);
+    transform: scale(1);
+    transform-origin: center bottom;
+  }}
+  .stage.gauge-view video {{ transform: scale(1.55); }}
+  #viewMode {{
+    position: absolute;
+    z-index: 2;
+    top: 12px;
+    right: 12px;
+    min-height: 36px;
+    border-color: rgba(255, 255, 255, .24);
+    background: rgba(9, 11, 12, .82);
+    backdrop-filter: blur(8px);
+    color: #fff;
+    font-size: 12.5px;
   }}
   #picker {{
     display: grid;
@@ -307,19 +336,16 @@ def render_picker_html(video_name: str) -> str:
   .transport-data {{ display: grid; gap: 6px; }}
   .readout {{ display: flex; align-items: baseline; gap: 9px; }}
   #time {{
-    font-family: Consolas, "SFMono-Regular", Menlo, monospace;
+    font-family: var(--font-display);
     font-size: clamp(32px, 4.1vw, 54px);
     font-variant-numeric: tabular-nums;
-    font-weight: 700;
-    letter-spacing: -.045em;
+    font-weight: 620;
     line-height: .9;
   }}
   .unit, #frameCount {{
     color: var(--muted);
-    font-family: Consolas, "SFMono-Regular", monospace;
-    font-size: 11px;
-    letter-spacing: .07em;
-    text-transform: uppercase;
+    font-size: 12.5px;
+    font-weight: 450;
   }}
   .transport-buttons {{ display: flex; align-items: center; gap: 5px; }}
   button {{
@@ -329,7 +355,7 @@ def render_picker_html(video_name: str) -> str:
     padding: 8px 12px;
     background: var(--raised);
     color: var(--ivory);
-    font: 650 13px/1 Bahnschrift, "Arial Narrow", "Segoe UI", sans-serif;
+    font: 600 13.5px/1 var(--font-ui);
     cursor: pointer;
   }}
   button:hover {{ border-color: #59646b; background: #20272b; }}
@@ -338,8 +364,9 @@ def render_picker_html(video_name: str) -> str:
   .transport-buttons button {{
     min-width: 44px;
     padding-inline: 10px;
-    font-family: Consolas, "SFMono-Regular", monospace;
-    font-size: 15px;
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
   }}
   #playPause {{ min-width: 88px; color: var(--ivory); }}
   button kbd {{
@@ -352,13 +379,13 @@ def render_picker_html(video_name: str) -> str:
     border-radius: 3px;
     background: #0d1014;
     color: var(--muted);
-    font: 11px Consolas, monospace;
+    font: 600 11px/1 var(--font-ui);
   }}
   .key-hint {{
     grid-column: 1 / -1;
     margin: 0;
     color: var(--muted);
-    font: 11px/1.4 Consolas, "SFMono-Regular", monospace;
+    font: 450 12.5px/1.4 var(--font-ui);
   }}
   .timing-panel {{
     display: flex;
@@ -376,8 +403,7 @@ def render_picker_html(video_name: str) -> str:
     padding-bottom: 10px;
     border-bottom: 1px solid var(--etched);
   }}
-  .panel-heading strong {{ font-size: 15px; letter-spacing: .02em; }}
-  .panel-heading span {{ color: var(--muted); font: 10px Consolas, monospace; text-transform: uppercase; }}
+  .panel-heading strong {{ font-size: 16px; font-weight: 620; }}
   .endpoint {{ display: grid; gap: 7px; padding: 12px 0; }}
   .mark-control {{
     display: grid;
@@ -387,10 +413,10 @@ def render_picker_html(video_name: str) -> str:
     align-content: center;
     text-align: left;
   }}
-  .mark-label {{ display: flex; align-items: center; font-size: 14px; }}
+  .mark-label {{ display: flex; align-items: center; font-size: 14px; font-weight: 600; }}
   .mark-value {{
     color: var(--muted);
-    font: 700 20px Consolas, "SFMono-Regular", monospace;
+    font: 580 19px/1 var(--font-display);
     font-variant-numeric: tabular-nums;
   }}
   .launch-endpoint .mark-control {{ border-left: 3px solid var(--launch); }}
@@ -399,7 +425,7 @@ def render_picker_html(video_name: str) -> str:
   .hundred-endpoint .mark-control {{ border-left: 3px solid var(--hundred); }}
   .hundred-endpoint .mark-control.marked {{ background: var(--hundred-dark); }}
   .hundred-endpoint .marked .mark-value {{ color: var(--hundred); }}
-  .jump {{ min-height: 32px; padding: 6px 10px; color: var(--muted); font-size: 11px; }}
+  .jump {{ min-height: 32px; padding: 6px 10px; color: var(--muted); font-size: 12px; }}
   .interval {{
     display: grid;
     grid-template-columns: 16px 1fr;
@@ -427,8 +453,8 @@ def render_picker_html(video_name: str) -> str:
   .interval-line::before {{ top: -1px; color: var(--launch); }}
   .interval-line::after {{ bottom: -1px; color: var(--hundred); }}
   .interval-copy {{ display: grid; gap: 3px; }}
-  .interval-copy span {{ color: var(--muted); font-size: 11px; text-transform: uppercase; }}
-  #elapsed {{ font: 700 24px Consolas, monospace; font-variant-numeric: tabular-nums; }}
+  .interval-copy span {{ color: var(--muted); font-size: 12.5px; font-weight: 500; }}
+  #elapsed {{ font: 620 23px/1 var(--font-display); font-variant-numeric: tabular-nums; }}
   .panel-actions {{ display: grid; gap: 7px; margin-top: auto; padding-top: 10px; }}
   #finish {{
     min-height: 50px;
@@ -440,7 +466,7 @@ def render_picker_html(video_name: str) -> str:
   #hint, #status {{
     margin: 0;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.45;
   }}
   #hint {{ margin-top: 8px; }}
@@ -477,7 +503,8 @@ def render_picker_html(video_name: str) -> str:
     padding: 3px 5px;
     background: rgba(0, 0, 0, .78);
     color: #fff;
-    font: 11px Consolas, monospace;
+    font: 550 12px/1 var(--font-display);
+    font-variant-numeric: tabular-nums;
   }}
   .done {{
     display: grid;
@@ -485,7 +512,7 @@ def render_picker_html(video_name: str) -> str:
     place-items: center;
     padding: 30px;
     color: var(--success);
-    font: 700 clamp(24px, 5vw, 48px) Consolas, monospace;
+    font: 620 clamp(24px, 5vw, 48px)/1.2 var(--font-display);
     text-align: center;
   }}
   @media (max-width: 900px) {{
@@ -509,17 +536,18 @@ def render_picker_html(video_name: str) -> str:
 <body>
 <header>
   <h1>{safe_name}</h1>
-  <p>Exact frame timing</p>
+  <p>Frame picker</p>
 </header>
 <main id="picker">
   <section class="viewer" aria-label="Video and frame controls">
     <div class="stage">
       <video id="video" src="/video" controls preload="metadata"></video>
+      <button id="viewMode" type="button" aria-pressed="false">Gauge view</button>
     </div>
     <div class="transport">
       <div class="transport-data">
-        <div class="readout"><span id="time">0.000</span><span class="unit">PTS</span></div>
-        <span id="frameCount">Frame - / -</span>
+        <div class="readout"><span id="time">0.000</span><span class="unit">seconds</span></div>
+        <span id="frameCount">Frame - of -</span>
       </div>
       <div class="transport-buttons" aria-label="Frame transport">
         <button id="stepBackTen" type="button" title="Back 10 frames">-10</button>
@@ -528,11 +556,11 @@ def render_picker_html(video_name: str) -> str:
         <button id="stepForward" type="button" title="Forward 1 frame">+1</button>
         <button id="stepForwardTen" type="button" title="Forward 10 frames">+10</button>
       </div>
-      <p class="key-hint">Space plays. Hold arrows to inspect every frame. Shift skips 10.</p>
+      <p class="key-hint">Space plays. Hold an arrow to inspect every frame. Shift skips 10. Z toggles Gauge view.</p>
     </div>
   </section>
   <aside class="timing-panel" aria-label="Run timing marks">
-    <div class="panel-heading"><strong>Run interval</strong><span>Exact frames</span></div>
+    <div class="panel-heading"><strong>Timing</strong></div>
     <div class="endpoint launch-endpoint">
       <button id="markLaunch" class="mark-control" type="button" disabled>
         <span class="mark-label"><kbd>L</kbd>Mark launch</span>
@@ -542,7 +570,7 @@ def render_picker_html(video_name: str) -> str:
     </div>
     <div class="interval">
       <span class="interval-line" aria-hidden="true"></span>
-      <div class="interval-copy"><span>Elapsed</span><strong id="elapsed">--.---</strong></div>
+      <div class="interval-copy"><span>Run time</span><strong id="elapsed">--.---</strong></div>
     </div>
     <div class="endpoint hundred-endpoint">
       <button id="markHundred" class="mark-control" type="button" disabled>
@@ -573,6 +601,8 @@ def render_picker_html(video_name: str) -> str:
   const jumpHundredButton = document.getElementById("jumpHundred");
   const finishButton = document.getElementById("finish");
   const playPauseButton = document.getElementById("playPause");
+  const viewModeButton = document.getElementById("viewMode");
+  const stage = document.querySelector(".stage");
   const statusEl = document.getElementById("status");
   let times = [];
   let selected = 0;
@@ -604,7 +634,7 @@ def render_picker_html(video_name: str) -> str:
     if (!times.length) return;
     selected = Math.max(0, Math.min(times.length - 1, index));
     timeEl.textContent = times[selected].toFixed(3);
-    frameCountEl.textContent = "Frame " + String(selected + 1) + " / " + String(times.length);
+    frameCountEl.textContent = "Frame " + String(selected + 1) + " of " + String(times.length);
     const thumbFrame = Math.min(
       times.length - 1,
       Math.round(selected / thumbnailStep) * thumbnailStep
@@ -680,6 +710,12 @@ def render_picker_html(video_name: str) -> str:
     else video.pause();
   }}
 
+  function toggleViewMode() {{
+    const enabled = stage.classList.toggle("gauge-view");
+    viewModeButton.textContent = enabled ? "Fit video" : "Gauge view";
+    viewModeButton.setAttribute("aria-pressed", String(enabled));
+  }}
+
   function updateFinish() {{
     const complete = launch !== null && hundred !== null;
     const ordered = complete && hundred > launch;
@@ -718,6 +754,7 @@ def render_picker_html(video_name: str) -> str:
   document.getElementById("stepBackTen").addEventListener("click", function () {{ requestIndex(requestedIndex - 10); }});
   document.getElementById("stepBack").addEventListener("click", function () {{ requestIndex(requestedIndex - 1); }});
   playPauseButton.addEventListener("click", togglePlayback);
+  viewModeButton.addEventListener("click", toggleViewMode);
   document.getElementById("stepForward").addEventListener("click", function () {{ requestIndex(requestedIndex + 1); }});
   document.getElementById("stepForwardTen").addEventListener("click", function () {{ requestIndex(requestedIndex + 10); }});
   video.addEventListener("click", togglePlayback);
@@ -741,8 +778,13 @@ def render_picker_html(video_name: str) -> str:
     if (event.key === "Home") destination = 0;
     else if (event.key === "End") destination = times.length - 1;
     else if (event.code === "Space") {{
+      if (event.target.closest("button")) return;
       event.preventDefault();
       togglePlayback();
+      return;
+    }} else if (event.key.toLowerCase() === "z") {{
+      event.preventDefault();
+      toggleViewMode();
       return;
     }} else if (event.key.toLowerCase() === "l") {{
       event.preventDefault();

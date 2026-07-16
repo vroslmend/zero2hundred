@@ -160,6 +160,44 @@ class PrepareBrowserVideoTests(unittest.TestCase):
         self.assertIn("12", command)
         self.assertIn("+faststart", command)
 
+    def test_transcodes_rotated_h264_so_browser_dimensions_match(self) -> None:
+        toolchain = Toolchain(ffmpeg="ffmpeg", ffprobe="ffprobe")
+        commands = []
+
+        def fake_run(command, **kwargs):
+            commands.append(command)
+            if command[0] == "ffprobe":
+                return subprocess.CompletedProcess(
+                    command,
+                    0,
+                    stdout=json.dumps(
+                        {
+                            "streams": [
+                                {
+                                    "codec_name": "h264",
+                                    "pix_fmt": "yuv420p",
+                                    "side_data_list": [{"rotation": -90}],
+                                }
+                            ]
+                        }
+                    ),
+                    stderr="",
+                )
+            Path(command[-1]).write_bytes(b"upright preview")
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "input.mp4"
+            source.write_bytes(b"video")
+            with mock.patch("zero2hundred.picker.subprocess.run", side_effect=fake_run):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    result = prepare_browser_video(source, toolchain, root)
+
+        self.assertEqual(result.name, "browser-preview.mp4")
+        self.assertEqual(len(commands), 2)
+        self.assertEqual(commands[1][0], "ffmpeg")
+
     def test_reports_preview_transcode_failure(self) -> None:
         toolchain = Toolchain(ffmpeg="ffmpeg", ffprobe="ffprobe")
         probe = subprocess.CompletedProcess(
@@ -207,6 +245,10 @@ class RenderPickerHtmlTests(unittest.TestCase):
         self.assertIn('id="playPause"', text)
         self.assertIn('id="stepForward"', text)
         self.assertIn('id="stepForwardTen"', text)
+        self.assertIn('id="viewMode"', text)
+        self.assertIn("object-fit: contain", text)
+        self.assertIn("gauge-view", text)
+        self.assertIn('"Segoe UI Variable"', text)
         self.assertIn('id="jumpLaunch"', text)
         self.assertIn('id="jumpHundred"', text)
         self.assertIn("Use these frames", text)
@@ -214,6 +256,8 @@ class RenderPickerHtmlTests(unittest.TestCase):
         self.assertIn('addEventListener("keyup"', text)
         self.assertIn('navigator.sendBeacon("/cancel")', text)
         self.assertIn('window.addEventListener("pagehide"', text)
+        self.assertNotIn("Consolas", text)
+        self.assertNotIn("text-transform: uppercase", text)
         self.assertNotIn("http://", text)
         self.assertNotIn("https://", text)
 
