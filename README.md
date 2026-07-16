@@ -38,8 +38,6 @@ python -m pip install --user pipx
 python -m pipx ensurepath
 ```
 
-Open a new terminal after these installations.
-
 ### macOS
 
 If you use [Homebrew](https://brew.sh/):
@@ -61,6 +59,9 @@ Check that `python3 --version` reports Python 3.11 or newer. If it does not,
 install a supported Python using the method recommended by your distribution
 before continuing.
 
+After installing the prerequisites above, close this terminal and open a new one
+so the updated `PATH` takes effect.
+
 ## Install zero2hundred
 
 The installation does not require Git:
@@ -69,8 +70,7 @@ The installation does not require Git:
 pipx install https://github.com/vroslmend/zero2hundred/archive/refs/heads/main.zip
 ```
 
-Open a new terminal if `pipx ensurepath` changed your `PATH`, then verify the
-installation before processing a video.
+Verify the installation before processing a video.
 
 Windows:
 
