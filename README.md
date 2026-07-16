@@ -58,13 +58,16 @@ If you don't know the exact frames, use the picker:
 zero2hundred "D:\Videos\run.mp4" --pick
 ```
 
-That opens a page in your browser with every frame of the video:
+That opens the picker in your browser:
 
-1. Arrow keys move one frame, Shift+arrows move ten.
-2. Step to the launch frame and press Copy time.
-3. Paste it in the terminal at the launch prompt.
-4. Do the same for the frame where the needle hits 100.
-5. It renders and saves `run_0-100.mp4` next to the original.
+1. Play or pause the video to get close to the launch.
+2. Use the arrow keys to step to the exact frame. Shift+arrows move ten frames.
+3. Press L to mark the launch.
+4. Play or step to the frame where the needle hits 100.
+5. Press H to mark 100 km/h.
+6. Press Finish.
+7. Go back to the terminal. It renders automatically and saves
+   `run_0-100.mp4` next to the original.
 
 Your times get snapped to exact frames automatically, so being a fraction of
 a second off when typing is fine.
@@ -72,7 +75,7 @@ a second off when typing is fine.
 All options:
 
 ```text
---pick                 Browse frames in the browser to find exact times
+--pick                 Mark exact frames in the browser
 --output PATH          Where to save the result
 --freeze SECONDS       How long the final frame holds
 --position POSITION    top-left, top-center, top-right,
