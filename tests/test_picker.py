@@ -1,5 +1,7 @@
 import contextlib
+import http.client
 import io
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -7,7 +9,13 @@ import unittest
 from unittest import mock
 
 from zero2hundred.media import Toolchain
-from zero2hundred.picker import build_picker, thumbnail_indices, write_picker_html
+from zero2hundred.picker import (
+    _PickerServer,
+    extract_thumbnails,
+    render_picker_html,
+    serve_picker,
+    thumbnail_indices,
+)
 
 
 class ThumbnailIndicesTests(unittest.TestCase):
@@ -25,7 +33,6 @@ class ThumbnailIndicesTests(unittest.TestCase):
         self.assertEqual(indices[0], 0)
         self.assertEqual(indices, sorted(set(indices)))
         self.assertTrue(all(0 <= i < 25 for i in indices))
-        # step = ceil(25/10) = 3 -> 0, 3, 6, ..., 24
         self.assertEqual(indices, [0, 3, 6, 9, 12, 15, 18, 21, 24])
 
     def test_over_limit_result_is_sorted_and_unique(self) -> None:
@@ -36,81 +43,216 @@ class ThumbnailIndicesTests(unittest.TestCase):
         self.assertTrue(all(0 <= i < 4731 for i in indices))
 
 
-class WritePickerHtmlTests(unittest.TestCase):
-    def test_writes_html_with_times_paths_and_no_external_urls(self) -> None:
+class ExtractThumbnailsTests(unittest.TestCase):
+    def test_uses_160_pixel_height_and_preserves_passthrough_flags(self) -> None:
+        toolchain = Toolchain(ffmpeg="ffmpeg", ffprobe="ffprobe")
+
+        def fake_run(command, **kwargs):
+            pattern = Path(command[-1])
+            pattern.parent.mkdir(parents=True, exist_ok=True)
+            (pattern.parent / "000001.jpg").write_bytes(b"x")
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
         with tempfile.TemporaryDirectory() as tmp:
-            workdir = Path(tmp)
-            entries = [
-                (0.0, "frames/000001.jpg"),
-                (1.412, "frames/000002.jpg"),
-                (12.375, "frames/000003.jpg"),
-            ]
-            html_path = write_picker_html(entries, workdir, "sample_video.mp4")
+            with mock.patch("zero2hundred.picker.subprocess.run", side_effect=fake_run) as run:
+                extract_thumbnails(Path("input.mp4"), toolchain, 3, Path(tmp))
 
-            self.assertTrue(html_path.exists())
-            self.assertEqual(html_path, workdir / "picker.html")
+        command = run.call_args.args[0]
+        self.assertIn("select='not(mod(n\\,3))',scale=-2:160", command)
+        self.assertIn("-fps_mode", command)
+        self.assertIn("passthrough", command)
 
-            text = html_path.read_text(encoding="utf-8")
-            self.assertIn("sample_video.mp4", text)
-            self.assertIn("0.000", text)
-            self.assertIn("1.412", text)
-            self.assertIn("12.375", text)
-            self.assertIn("frames/000001.jpg", text)
-            self.assertIn("frames/000002.jpg", text)
-            self.assertIn("frames/000003.jpg", text)
-            self.assertNotIn("http://", text)
-            self.assertNotIn("https://", text)
+    def test_falls_back_to_vsync_zero(self) -> None:
+        toolchain = Toolchain(ffmpeg="ffmpeg", ffprobe="ffprobe")
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append(command)
+            if len(calls) == 1:
+                return subprocess.CompletedProcess(command, 1, stdout="", stderr="failed")
+            pattern = Path(command[-1])
+            pattern.parent.mkdir(parents=True, exist_ok=True)
+            (pattern.parent / "000001.jpg").write_bytes(b"x")
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch("zero2hundred.picker.subprocess.run", side_effect=fake_run):
+                extract_thumbnails(Path("input.mp4"), toolchain, 1, Path(tmp))
+
+        self.assertIn("-fps_mode", calls[0])
+        self.assertIn("passthrough", calls[0])
+        self.assertIn("-vsync", calls[1])
+        self.assertIn("0", calls[1])
 
 
-class BuildPickerMismatchWarningTests(unittest.TestCase):
-    def test_warns_on_stderr_when_ffmpeg_produces_fewer_thumbnails_than_expected(self) -> None:
+class RenderPickerHtmlTests(unittest.TestCase):
+    def test_renders_video_times_marks_and_no_external_urls(self) -> None:
+        text = render_picker_html("sample_video.mp4")
+
+        self.assertIn("sample_video.mp4", text)
+        self.assertIn('<video id="video" src="/video" controls', text)
+        self.assertIn('fetch("/times")', text)
+        self.assertIn("Mark launch", text)
+        self.assertIn("Mark 100 km/h", text)
+        self.assertIn("Finish", text)
+        self.assertNotIn("http://", text)
+        self.assertNotIn("https://", text)
+
+    def test_escapes_video_name(self) -> None:
+        text = render_picker_html('<video onload="bad">.mp4')
+
+        self.assertNotIn('<video onload="bad">.mp4', text)
+        self.assertIn("&lt;video onload=&quot;bad&quot;&gt;.mp4", text)
+
+
+class PickerServerIntegrationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.workdir = Path(self.tempdir.name)
+        frames_dir = self.workdir / "frames"
+        frames_dir.mkdir()
+        (frames_dir / "000001.jpg").write_bytes(b"a")
+        (frames_dir / "000002.jpg").write_bytes(b"b")
+        self.video_bytes = bytes(range(250)) * 4
+        self.video_path = self.workdir / "video.mp4"
+        self.video_path.write_bytes(self.video_bytes)
+        self.server = _PickerServer(
+            self.video_path, self.workdir, [0.0, 0.5, 1.0]
+        )
+        self.server.start()
+
+    def tearDown(self) -> None:
+        self.server.stop()
+        self.tempdir.cleanup()
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        body: bytes | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> tuple[http.client.HTTPResponse, bytes]:
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.port, timeout=2)
+        connection.request(method, path, body=body, headers=headers or {})
+        response = connection.getresponse()
+        payload = response.read()
+        connection.close()
+        return response, payload
+
+    def test_serves_times_video_range_rejects_traversal_and_accepts_marks(self) -> None:
+        response, payload = self.request("GET", "/times")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(payload), [0.0, 0.5, 1.0])
+
+        response, payload = self.request(
+            "GET", "/video", headers={"Range": "bytes=100-199"}
+        )
+        self.assertEqual(response.status, 206)
+        self.assertEqual(response.getheader("Content-Range"), "bytes 100-199/1000")
+        self.assertEqual(response.getheader("Accept-Ranges"), "bytes")
+        self.assertEqual(payload, self.video_bytes[100:200])
+
+        response, _ = self.request("GET", "/thumbs/../x")
+        self.assertGreaterEqual(response.status, 400)
+
+        body = json.dumps({"launch": 0.5, "hundred": 1.0}).encode("utf-8")
+        response, payload = self.request(
+            "POST",
+            "/done",
+            body=body,
+            headers={"Content-Type": "application/json", "Content-Length": str(len(body))},
+        )
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(payload), {"ok": True})
+        self.assertTrue(self.server.result_event.wait(timeout=1))
+        self.assertEqual(self.server.result, (0.5, 1.0))
+
+    def test_serves_page_full_video_and_thumbnail(self) -> None:
+        response, payload = self.request("GET", "/")
+        self.assertEqual(response.status, 200)
+        self.assertIn(b"<video", payload)
+
+        response, payload = self.request("GET", "/video")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.getheader("Accept-Ranges"), "bytes")
+        self.assertEqual(payload, self.video_bytes)
+
+        response, payload = self.request("GET", "/thumbs/000001.jpg")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(payload, b"a")
+
+    def test_rejects_invalid_done_payload(self) -> None:
+        response, _ = self.request(
+            "POST",
+            "/done",
+            body=b'{"launch": true}',
+            headers={"Content-Type": "application/json", "Content-Length": "16"},
+        )
+
+        self.assertEqual(response.status, 400)
+        self.assertFalse(self.server.result_event.is_set())
+        self.assertIsNone(self.server.result)
+
+
+class ServePickerTests(unittest.TestCase):
+    class FakeServer:
+        instance = None
+
+        def __init__(self, video_path, workdir, times):
+            type(self).instance = self
+            self.url = "http://127.0.0.1:12345/"
+            self.result = (0.5, 1.0)
+            self.result_event = mock.Mock()
+            self.started = False
+            self.stopped = False
+
+        def start(self):
+            self.started = True
+
+        def stop(self):
+            self.stopped = True
+
+    def test_warns_on_thumbnail_mismatch_and_returns_server_result(self) -> None:
         toolchain = Toolchain(ffmpeg="ffmpeg", ffprobe="ffprobe")
         times = [0.0, 1.0, 2.0, 3.0, 4.0]
+        thumbnails = [Path("1.jpg"), Path("2.jpg"), Path("3.jpg")]
+        stderr = io.StringIO()
 
-        def fake_run(command, **kwargs):
-            pattern = Path(command[-1])
-            frames_dir = pattern.parent
-            frames_dir.mkdir(parents=True, exist_ok=True)
-            # Simulate ffmpeg only producing 3 of the 5 expected frames.
-            for i in range(1, 4):
-                (frames_dir / f"{i:06d}.jpg").write_bytes(b"\xff\xd8\xff")
-            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        with mock.patch("zero2hundred.picker.extract_thumbnails", return_value=thumbnails):
+            with mock.patch("zero2hundred.picker._PickerServer", self.FakeServer):
+                with mock.patch("zero2hundred.picker.webbrowser.open") as open_browser:
+                    with contextlib.redirect_stderr(stderr):
+                        result = serve_picker(Path("input.mp4"), toolchain, times, Path("work"))
 
-        with tempfile.TemporaryDirectory() as tmp:
-            workdir = Path(tmp)
-            stderr = io.StringIO()
-            with mock.patch("zero2hundred.picker.subprocess.run", side_effect=fake_run):
-                with contextlib.redirect_stderr(stderr):
-                    html_path = build_picker(Path("input.mp4"), toolchain, times, workdir)
+        self.assertEqual(result, (0.5, 1.0))
+        self.assertIn("expected 5 thumbnails", stderr.getvalue())
+        self.assertIn("produced 3", stderr.getvalue())
+        self.assertTrue(self.FakeServer.instance.started)
+        self.assertTrue(self.FakeServer.instance.stopped)
+        open_browser.assert_called_once_with("http://127.0.0.1:12345/")
 
-            message = stderr.getvalue()
-            self.assertIn("expected 5 thumbnails", message)
-            self.assertIn("produced 3", message)
-
-            text = html_path.read_text(encoding="utf-8")
-            # Pairing must still truncate to the shorter (thumbnail) length rather than crash.
-            self.assertEqual(text.count(".jpg"), 3)
-
-    def test_no_warning_when_counts_match(self) -> None:
+    def test_stops_server_before_reraising_keyboard_interrupt(self) -> None:
         toolchain = Toolchain(ffmpeg="ffmpeg", ffprobe="ffprobe")
-        times = [0.0, 1.0, 2.0]
 
-        def fake_run(command, **kwargs):
-            pattern = Path(command[-1])
-            frames_dir = pattern.parent
-            frames_dir.mkdir(parents=True, exist_ok=True)
-            for i in range(1, 4):
-                (frames_dir / f"{i:06d}.jpg").write_bytes(b"\xff\xd8\xff")
-            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        with mock.patch(
+            "zero2hundred.picker.extract_thumbnails", return_value=[Path("1.jpg")]
+        ):
+            with mock.patch("zero2hundred.picker._PickerServer", self.FakeServer):
+                with mock.patch("zero2hundred.picker.webbrowser.open"):
+                    self.FakeServer.instance = None
+                    with self.assertRaises(KeyboardInterrupt):
+                        original_init = self.FakeServer.__init__
 
-        with tempfile.TemporaryDirectory() as tmp:
-            workdir = Path(tmp)
-            stderr = io.StringIO()
-            with mock.patch("zero2hundred.picker.subprocess.run", side_effect=fake_run):
-                with contextlib.redirect_stderr(stderr):
-                    build_picker(Path("input.mp4"), toolchain, times, workdir)
+                        def init_with_interrupt(server, *args, **kwargs):
+                            original_init(server, *args, **kwargs)
+                            server.result_event.wait.side_effect = KeyboardInterrupt
 
-            self.assertEqual(stderr.getvalue(), "")
+                        with mock.patch.object(self.FakeServer, "__init__", init_with_interrupt):
+                            serve_picker(
+                                Path("input.mp4"), toolchain, [0.0], Path("work")
+                            )
+
+        self.assertTrue(self.FakeServer.instance.stopped)
 
 
 if __name__ == "__main__":

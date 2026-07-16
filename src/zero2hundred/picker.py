@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 import html
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
 from pathlib import Path
+import re
 import subprocess
 import sys
+import threading
+from urllib.parse import unquote, urlsplit
+import webbrowser
 
 from zero2hundred.errors import MediaError
 from zero2hundred.media import Toolchain
 
 DEFAULT_THUMBNAIL_LIMIT = 1200
+_CHUNK_SIZE = 64 * 1024
+_RANGE_PATTERN = re.compile(r"bytes=(\d*)-(\d*)$")
 
 
 def thumbnail_indices(count: int, limit: int = DEFAULT_THUMBNAIL_LIMIT) -> list[int]:
@@ -36,9 +43,9 @@ def extract_thumbnails(
     pattern = frames_dir / "%06d.jpg"
 
     if step <= 1:
-        video_filter = "scale=-2:220"
+        video_filter = "scale=-2:160"
     else:
-        video_filter = rf"select='not(mod(n\,{step}))',scale=-2:220"
+        video_filter = rf"select='not(mod(n\,{step}))',scale=-2:160"
 
     # FFmpeg's image2 muxer defaults to CFR pacing, which drops/duplicates frames on
     # variable-frame-rate input unless told to keep every decoded frame verbatim. "vfr" mode
@@ -91,233 +98,601 @@ def _run_ffmpeg(
     )
 
 
-def write_picker_html(
-    entries: list[tuple[float, str]], workdir: Path, video_name: str
-) -> Path:
-    """Write a self-contained frame-picker HTML page and return its path."""
-    frames = [[f"{pts:.3f}", relative_path] for pts, relative_path in entries]
-    frames_json = json.dumps(frames)
+def render_picker_html(video_name: str) -> str:
+    """Return the local frame picker page without embedding frame timestamps."""
     safe_name = html.escape(video_name)
-
-    document = f"""<!doctype html>
+    return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Frame picker - {safe_name}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frame picker | {safe_name}</title>
 <style>
+  :root {{
+    color-scheme: dark;
+    --ink: #080a0d;
+    --panel: #11151a;
+    --raised: #191f26;
+    --line: #303945;
+    --text: #eef1f4;
+    --muted: #98a2ad;
+    --accent: #f1ad3d;
+    --accent-dark: #3a2a12;
+    --success: #76c893;
+  }}
   * {{ box-sizing: border-box; }}
   body {{
     margin: 0;
-    background: #111318;
-    color: #e8e8ec;
-    font-family: -apple-system, Segoe UI, Arial, sans-serif;
+    min-height: 100vh;
+    background: var(--ink);
+    color: var(--text);
+    font-family: "Segoe UI", Arial, sans-serif;
   }}
+  button, video {{ -webkit-tap-highlight-color: transparent; }}
   header {{
-    padding: 16px 20px;
-    border-bottom: 1px solid #2a2d36;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
   }}
-  header h1 {{
-    margin: 0 0 4px;
-    font-size: 18px;
+  h1 {{
+    margin: 0;
+    overflow: hidden;
+    font-size: 16px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }}
   header p {{
     margin: 0;
-    color: #9aa0ac;
-    font-size: 13px;
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-family: Consolas, "SFMono-Regular", monospace;
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
   }}
   main {{
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 20px;
-    gap: 12px;
+    display: grid;
+    justify-items: center;
+    gap: 14px;
+    padding: 18px 20px 0;
   }}
-  #preview {{
+  .stage {{
+    display: grid;
+    width: 100%;
+    min-height: 220px;
+    place-items: center;
+  }}
+  video {{
+    display: block;
+    width: auto;
     max-width: 100%;
-    max-height: 60vh;
+    max-height: 72vh;
     background: #000;
-    border: 1px solid #2a2d36;
+    box-shadow: 0 0 0 1px var(--line), 0 18px 55px rgba(0, 0, 0, .45);
+  }}
+  .readout {{
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
   }}
   #time {{
-    font-family: "Consolas", "SFMono-Regular", Menlo, monospace;
-    font-size: 64px;
-    font-weight: bold;
-    letter-spacing: 1px;
+    font-family: Consolas, "SFMono-Regular", Menlo, monospace;
+    font-size: clamp(42px, 7vw, 72px);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    letter-spacing: -.05em;
+    line-height: .95;
   }}
-  #copyBtn {{
-    background: #3b6ef6;
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    padding: 10px 22px;
-    font-size: 15px;
+  .unit {{
+    color: var(--muted);
+    font-family: Consolas, "SFMono-Regular", monospace;
+    font-size: 12px;
+    letter-spacing: .08em;
+  }}
+  .marks {{
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }}
+  button {{
+    min-height: 42px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 8px 12px;
+    background: var(--raised);
+    color: var(--text);
+    font: 600 14px/1 "Segoe UI", Arial, sans-serif;
     cursor: pointer;
   }}
-  #copyBtn:active {{
-    background: #2f57c4;
+  button:hover {{ border-color: #596675; }}
+  button:focus-visible {{ outline: 2px solid var(--accent); outline-offset: 2px; }}
+  button:disabled {{ cursor: not-allowed; opacity: .42; }}
+  button kbd {{
+    display: inline-grid;
+    min-width: 22px;
+    min-height: 22px;
+    margin-right: 8px;
+    place-items: center;
+    border: 1px solid #4a5562;
+    border-radius: 3px;
+    background: #0d1014;
+    color: var(--muted);
+    font: 11px Consolas, monospace;
   }}
-  #copyStatus {{
-    color: #7fd08a;
-    font-size: 13px;
-    min-height: 16px;
+  .chip {{
+    display: inline-block;
+    min-width: 72px;
+    margin-left: 10px;
+    border-radius: 999px;
+    padding: 5px 8px;
+    background: #0d1014;
+    color: var(--muted);
+    font: 12px Consolas, monospace;
+    font-variant-numeric: tabular-nums;
   }}
+  .marked .chip {{ background: var(--accent-dark); color: var(--accent); }}
+  #finish {{
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #171006;
+  }}
+  #hint, #status {{
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+  }}
+  #status {{ min-height: 16px; color: var(--success); }}
   #filmstrip {{
     width: 100%;
     display: flex;
+    gap: 6px;
     overflow-x: auto;
-    gap: 4px;
-    padding: 8px;
-    background: #181b21;
-    border-top: 1px solid #2a2d36;
+    padding: 10px 20px 14px;
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+    scrollbar-color: #4a5562 var(--panel);
   }}
-  #filmstrip img {{
-    height: 90px;
+  #filmstrip button {{
+    position: relative;
+    min-height: 0;
     flex: 0 0 auto;
-    cursor: pointer;
-    opacity: 0.6;
+    overflow: hidden;
     border: 2px solid transparent;
+    border-radius: 2px;
+    padding: 0;
+    background: #000;
+    opacity: .54;
   }}
-  #filmstrip img.selected {{
-    opacity: 1;
-    border-color: #3b6ef6;
+  #filmstrip button.selected {{ border-color: var(--accent); opacity: 1; }}
+  #filmstrip img {{ display: block; height: 140px; width: auto; }}
+  #filmstrip span {{
+    position: absolute;
+    right: 5px;
+    bottom: 5px;
+    padding: 3px 5px;
+    background: rgba(0, 0, 0, .78);
+    color: #fff;
+    font: 11px Consolas, monospace;
+  }}
+  .done {{
+    display: grid;
+    min-height: 100vh;
+    place-items: center;
+    padding: 30px;
+    color: var(--success);
+    font: 700 clamp(24px, 5vw, 48px) Consolas, monospace;
+    text-align: center;
+  }}
+  @media (max-width: 640px) {{
+    header {{ align-items: flex-start; flex-direction: column; gap: 4px; }}
+    main {{ padding-inline: 10px; }}
+    .marks {{ align-items: stretch; flex-direction: column; width: min(100%, 360px); }}
+    #filmstrip {{ padding-inline: 10px; }}
+  }}
+  @media (prefers-reduced-motion: reduce) {{
+    * {{ scroll-behavior: auto !important; }}
   }}
 </style>
 </head>
 <body>
 <header>
   <h1>{safe_name}</h1>
-  <p>Step to the launch frame and the 100 km/h frame, copy each time, then enter them in the terminal.</p>
+  <p>Exact frame timing</p>
 </header>
-<main>
-  <img id="preview" src="" alt="selected frame">
-  <div id="time">0.000</div>
-  <button id="copyBtn" type="button">Copy time</button>
-  <div id="copyStatus"></div>
+<main id="picker">
+  <div class="stage">
+    <video id="video" src="/video" controls preload="metadata"></video>
+  </div>
+  <div class="readout"><span id="time">0.000</span><span class="unit">PTS seconds</span></div>
+  <div class="marks">
+    <button id="markLaunch" type="button"><kbd>L</kbd>Mark launch<span class="chip">Not marked</span></button>
+    <button id="markHundred" type="button"><kbd>H</kbd>Mark 100 km/h<span class="chip">Not marked</span></button>
+    <button id="finish" type="button" disabled>Finish</button>
+  </div>
+  <p id="hint">Space or click: play/pause &nbsp; Arrows: 1 frame &nbsp; Shift+arrows: 10 frames &nbsp; Home/End: first/last</p>
+  <p id="status" role="status"></p>
 </main>
-<div id="filmstrip"></div>
+<div id="filmstrip" aria-label="Video frames"></div>
 <script>
-  var frames = {frames_json};
-  var selected = 0;
-  var filmstrip = document.getElementById("filmstrip");
-  var preview = document.getElementById("preview");
-  var timeEl = document.getElementById("time");
-  var copyStatus = document.getElementById("copyStatus");
+  "use strict";
+  const thumbnailLimit = {DEFAULT_THUMBNAIL_LIMIT};
+  const video = document.getElementById("video");
+  const timeEl = document.getElementById("time");
+  const filmstrip = document.getElementById("filmstrip");
+  const launchButton = document.getElementById("markLaunch");
+  const hundredButton = document.getElementById("markHundred");
+  const finishButton = document.getElementById("finish");
+  const statusEl = document.getElementById("status");
+  let times = [];
+  let selected = 0;
+  let thumbnailStep = 1;
+  let selectedThumbnail = null;
+  let launch = null;
+  let hundred = null;
 
-  frames.forEach(function (frame, index) {{
-    var img = document.createElement("img");
-    img.src = frame[1];
-    img.setAttribute("loading", "lazy");
-    img.id = "thumb-" + index;
-    img.alt = "frame " + index;
-    img.addEventListener("click", function () {{
-      select(index);
-    }});
-    filmstrip.appendChild(img);
-  }});
-
-  function render() {{
-    var frame = frames[selected];
-    preview.src = frame[1];
-    timeEl.textContent = frame[0];
-    var thumbs = filmstrip.querySelectorAll("img");
-    for (var i = 0; i < thumbs.length; i++) {{
-      thumbs[i].classList.remove("selected");
+  function nearestIndex(value) {{
+    let low = 0;
+    let high = times.length - 1;
+    while (low < high) {{
+      const middle = Math.floor((low + high) / 2);
+      if (times[middle] < value) low = middle + 1;
+      else high = middle;
     }}
-    var current = document.getElementById("thumb-" + selected);
-    if (current) {{
-      current.classList.add("selected");
-      current.scrollIntoView({{behavior: "smooth", inline: "center", block: "nearest"}});
-    }}
-    copyStatus.textContent = "";
+    if (low > 0 && Math.abs(times[low - 1] - value) <= Math.abs(times[low] - value)) return low - 1;
+    return low;
   }}
 
-  function select(index) {{
-    if (index < 0) index = 0;
-    if (index > frames.length - 1) index = frames.length - 1;
-    selected = index;
-    render();
+  function showIndex(index, seek) {{
+    if (!times.length) return;
+    selected = Math.max(0, Math.min(times.length - 1, index));
+    timeEl.textContent = times[selected].toFixed(3);
+    const thumbFrame = Math.min(
+      times.length - 1,
+      Math.round(selected / thumbnailStep) * thumbnailStep
+    );
+    const nextThumbnail = document.querySelector('[data-frame="' + thumbFrame + '"]');
+    if (nextThumbnail !== selectedThumbnail) {{
+      if (selectedThumbnail) selectedThumbnail.classList.remove("selected");
+      selectedThumbnail = nextThumbnail;
+      if (selectedThumbnail) {{
+        selectedThumbnail.classList.add("selected");
+        selectedThumbnail.scrollIntoView({{inline: "center", block: "nearest"}});
+      }}
+    }}
+    if (seek) video.currentTime = times[selected] + 0.002;
   }}
+
+  function syncFromVideo() {{
+    if (times.length) showIndex(nearestIndex(video.currentTime), false);
+  }}
+
+  function togglePlayback() {{
+    if (video.paused) video.play().catch(function () {{}});
+    else video.pause();
+  }}
+
+  function updateFinish() {{
+    finishButton.disabled = launch === null || hundred === null;
+  }}
+
+  function mark(button, which) {{
+    const value = times[selected];
+    if (which === "launch") launch = value;
+    else hundred = value;
+    button.classList.add("marked");
+    button.querySelector(".chip").textContent = value.toFixed(3);
+    updateFinish();
+  }}
+
+  launchButton.addEventListener("click", function () {{ mark(launchButton, "launch"); }});
+  hundredButton.addEventListener("click", function () {{ mark(hundredButton, "hundred"); }});
+  video.addEventListener("click", togglePlayback);
+  video.addEventListener("seeked", syncFromVideo);
+  video.addEventListener("timeupdate", syncFromVideo);
 
   document.addEventListener("keydown", function (event) {{
-    var delta = 0;
-    if (event.key === "ArrowLeft") {{
-      delta = event.shiftKey ? -10 : -1;
-    }} else if (event.key === "ArrowRight") {{
-      delta = event.shiftKey ? 10 : 1;
-    }} else if (event.key === "Home") {{
+    let destination = null;
+    if (event.key === "ArrowLeft") destination = selected + (event.shiftKey ? -10 : -1);
+    else if (event.key === "ArrowRight") destination = selected + (event.shiftKey ? 10 : 1);
+    else if (event.key === "Home") destination = 0;
+    else if (event.key === "End") destination = times.length - 1;
+    else if (event.code === "Space") {{
       event.preventDefault();
-      select(0);
+      togglePlayback();
       return;
-    }} else if (event.key === "End") {{
+    }} else if (event.key.toLowerCase() === "l") {{
       event.preventDefault();
-      select(frames.length - 1);
+      mark(launchButton, "launch");
       return;
-    }} else {{
+    }} else if (event.key.toLowerCase() === "h") {{
+      event.preventDefault();
+      mark(hundredButton, "hundred");
       return;
-    }}
+    }} else return;
     event.preventDefault();
-    select(selected + delta);
+    video.pause();
+    showIndex(destination, true);
   }});
 
-  function fallbackCopy(text) {{
-    var textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
+  finishButton.addEventListener("click", async function () {{
+    finishButton.disabled = true;
+    statusEl.textContent = "Sending marks...";
     try {{
-      document.execCommand("copy");
-    }} catch (err) {{
-      /* clipboard unavailable; nothing more we can do */
-    }}
-    document.body.removeChild(textarea);
-  }}
-
-  document.getElementById("copyBtn").addEventListener("click", function () {{
-    var text = frames[selected][0];
-    if (navigator.clipboard && navigator.clipboard.writeText) {{
-      navigator.clipboard.writeText(text).catch(function () {{
-        fallbackCopy(text);
+      const response = await fetch("/done", {{
+        method: "POST",
+        headers: {{"Content-Type": "application/json"}},
+        body: JSON.stringify({{launch: launch, hundred: hundred}})
       }});
-    }} else {{
-      fallbackCopy(text);
+      if (!response.ok) throw new Error("The marks were not accepted.");
+      document.body.innerHTML = '<div class="done">Done. Back to the terminal.</div>';
+    }} catch (error) {{
+      statusEl.textContent = "Could not send the marks. Press Finish to try again.";
+      updateFinish();
     }}
-    copyStatus.textContent = "Copied " + text;
   }});
 
-  if (frames.length) {{
-    render();
+  async function loadTimes() {{
+    try {{
+      const response = await fetch("/times");
+      if (!response.ok) throw new Error("Frame times unavailable.");
+      times = await response.json();
+      if (!times.length) throw new Error("No frame times found.");
+      thumbnailStep = Math.max(1, Math.ceil(times.length / thumbnailLimit));
+      let thumbnailNumber = 1;
+      for (let frame = 0; frame < times.length; frame += thumbnailStep) {{
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.frame = String(frame);
+        button.setAttribute("aria-label", "Jump to frame at " + times[frame].toFixed(3) + " seconds");
+        const image = document.createElement("img");
+        image.loading = "lazy";
+        image.src = "/thumbs/" + String(thumbnailNumber).padStart(6, "0") + ".jpg";
+        image.alt = "";
+        const label = document.createElement("span");
+        label.textContent = times[frame].toFixed(3);
+        button.append(image, label);
+        button.addEventListener("click", function () {{
+          video.pause();
+          showIndex(frame, true);
+        }});
+        filmstrip.appendChild(button);
+        thumbnailNumber += 1;
+      }}
+      showIndex(0, true);
+    }} catch (error) {{
+      statusEl.textContent = "Could not load frame times. Close this page and try again.";
+    }}
   }}
+
+  loadTimes();
 </script>
 </body>
 </html>
 """
-    html_path = workdir / "picker.html"
-    html_path.write_text(document, encoding="utf-8")
-    return html_path
 
 
-def build_picker(
+class _PickerServer:
+    """Serve one picker session on a loopback-only ephemeral port."""
+
+    def __init__(self, video_path: Path, workdir: Path, times: list[float]) -> None:
+        self.video_path = video_path.resolve()
+        self.frames_dir = (workdir / "frames").resolve()
+        self.times = list(times)
+        self.result_event = threading.Event()
+        self.result: tuple[float, float] | None = None
+        self._thread: threading.Thread | None = None
+
+        owner = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                owner._handle_get(self)
+
+            def do_POST(self) -> None:
+                owner._handle_post(self)
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+        self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.port = int(self._httpd.server_address[1])
+        self.url = f"http://127.0.0.1:{self.port}/"
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(
+            target=self._httpd.serve_forever,
+            name="zero2hundred-picker",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        if self._thread is not None:
+            self._httpd.shutdown()
+            self._thread.join(timeout=2)
+            self._thread = None
+        self._httpd.server_close()
+
+    def _handle_get(self, handler: BaseHTTPRequestHandler) -> None:
+        path = unquote(urlsplit(handler.path).path)
+        if path == "/":
+            payload = render_picker_html(self.video_path.name).encode("utf-8")
+            self._send_bytes(handler, 200, payload, "text/html; charset=utf-8")
+        elif path == "/times":
+            payload = json.dumps(self.times, separators=(",", ":")).encode("utf-8")
+            self._send_bytes(handler, 200, payload, "application/json")
+        elif path == "/video":
+            self._serve_video(handler)
+        elif path.startswith("/thumbs/"):
+            self._serve_thumbnail(handler, path.removeprefix("/thumbs/"))
+        else:
+            handler.send_error(404)
+
+    def _handle_post(self, handler: BaseHTTPRequestHandler) -> None:
+        path = unquote(urlsplit(handler.path).path)
+        if path != "/done":
+            handler.send_error(404)
+            return
+
+        try:
+            length = int(handler.headers.get("Content-Length", ""))
+            if length < 0 or length > 64 * 1024:
+                raise ValueError
+            raw = handler.rfile.read(length)
+            data = json.loads(
+                raw.decode("utf-8"),
+                parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)),
+            )
+            launch = data["launch"]
+            hundred = data["hundred"]
+            if not _valid_mark(launch) or not _valid_mark(hundred):
+                raise ValueError
+        except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            self._send_json(handler, 400, {"ok": False})
+            return
+
+        self.result = (float(launch), float(hundred))
+        try:
+            self._send_json(handler, 200, {"ok": True})
+        finally:
+            self.result_event.set()
+
+    def _serve_video(self, handler: BaseHTTPRequestHandler) -> None:
+        size = self.video_path.stat().st_size
+        range_header = handler.headers.get("Range")
+        if range_header is None:
+            start, end, status = 0, max(0, size - 1), 200
+        else:
+            parsed = _parse_byte_range(range_header, size)
+            if parsed is None:
+                handler.send_response(416)
+                handler.send_header("Content-Range", f"bytes */{size}")
+                handler.send_header("Accept-Ranges", "bytes")
+                handler.send_header("Content-Length", "0")
+                handler.end_headers()
+                return
+            start, end = parsed
+            status = 206
+
+        length = 0 if size == 0 else end - start + 1
+        handler.send_response(status)
+        handler.send_header("Content-Type", "video/mp4")
+        handler.send_header("Accept-Ranges", "bytes")
+        handler.send_header("Content-Length", str(length))
+        if status == 206:
+            handler.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        handler.end_headers()
+
+        if length == 0:
+            return
+        with self.video_path.open("rb") as video:
+            video.seek(start)
+            remaining = length
+            while remaining:
+                chunk = video.read(min(_CHUNK_SIZE, remaining))
+                if not chunk:
+                    break
+                try:
+                    handler.wfile.write(chunk)
+                except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
+                    return
+                remaining -= len(chunk)
+
+    def _serve_thumbnail(self, handler: BaseHTTPRequestHandler, name: str) -> None:
+        candidate = (self.frames_dir / name).resolve()
+        if (
+            candidate.parent != self.frames_dir
+            or candidate.suffix.lower() != ".jpg"
+            or not candidate.is_file()
+        ):
+            handler.send_error(404)
+            return
+        self._send_bytes(handler, 200, candidate.read_bytes(), "image/jpeg")
+
+    @staticmethod
+    def _send_bytes(
+        handler: BaseHTTPRequestHandler,
+        status: int,
+        payload: bytes,
+        content_type: str,
+    ) -> None:
+        handler.send_response(status)
+        handler.send_header("Content-Type", content_type)
+        handler.send_header("Content-Length", str(len(payload)))
+        handler.end_headers()
+        try:
+            handler.wfile.write(payload)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
+            return
+
+    @classmethod
+    def _send_json(
+        cls, handler: BaseHTTPRequestHandler, status: int, value: dict[str, bool]
+    ) -> None:
+        payload = json.dumps(value, separators=(",", ":")).encode("utf-8")
+        cls._send_bytes(handler, status, payload, "application/json")
+
+
+def _valid_mark(value: object) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
+
+
+def _parse_byte_range(value: str, size: int) -> tuple[int, int] | None:
+    match = _RANGE_PATTERN.fullmatch(value.strip())
+    if match is None or size <= 0:
+        return None
+    start_text, end_text = match.groups()
+    if not start_text and not end_text:
+        return None
+    if not start_text:
+        suffix_length = int(end_text)
+        if suffix_length <= 0:
+            return None
+        return max(0, size - suffix_length), size - 1
+    start = int(start_text)
+    if start >= size:
+        return None
+    end = size - 1 if not end_text else min(int(end_text), size - 1)
+    if end < start:
+        return None
+    return start, end
+
+
+def serve_picker(
     path: Path, toolchain: Toolchain, times: list[float], workdir: Path
-) -> Path:
-    """Extract thumbnails for `times` and write the picker HTML, returning its path."""
+) -> tuple[float, float]:
+    """Extract thumbnails, open a local picker, and wait for both frame marks."""
     count = len(times)
-    indices = thumbnail_indices(count)
     step = _step_for(count, DEFAULT_THUMBNAIL_LIMIT)
     thumbnails = extract_thumbnails(path, toolchain, step, workdir)
-
-    if len(thumbnails) != len(indices):
+    expected = len(thumbnail_indices(count))
+    if len(thumbnails) != expected:
         print(
-            f"Warning: expected {len(indices)} thumbnails but ffmpeg produced "
+            f"Warning: expected {expected} thumbnails but ffmpeg produced "
             f"{len(thumbnails)}; picker times near the end of the clip may be slightly off.",
             file=sys.stderr,
         )
 
-    paired = min(len(indices), len(thumbnails))
-    entries = [
-        (times[indices[i]], thumbnails[i].relative_to(workdir).as_posix())
-        for i in range(paired)
-    ]
-    return write_picker_html(entries, workdir, path.name)
+    server = _PickerServer(path, workdir, times)
+    server.start()
+    try:
+        webbrowser.open(server.url)
+        server.result_event.wait()
+        if server.result is None:
+            raise MediaError("frame picker closed without returning marks")
+        return server.result
+    finally:
+        server.stop()
