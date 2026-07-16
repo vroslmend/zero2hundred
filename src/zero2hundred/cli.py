@@ -54,10 +54,6 @@ def main(argv: list[str] | None = None) -> int:
         toolchain = find_toolchain()
         print(f"Inspecting {input_path.name}...")
         media = probe_video(input_path, toolchain)
-        print(
-            f"Video: {media.width}x{media.height}, {media.frame_rate:.3f} fps, "
-            f"{format_timecode(media.duration)}"
-        )
 
         print("Reading frame timestamps...")
         times: list[float] | None
@@ -66,6 +62,13 @@ def main(argv: list[str] | None = None) -> int:
         except Zero2HundredError as exc:
             print(f"Warning: could not read frame timestamps: {exc}", file=sys.stderr)
             times = None
+
+        print("\nVideo")
+        print(f"  File        {input_path.name}")
+        print(f"  Resolution  {media.width} x {media.height}")
+        print(f"  Duration    {format_timecode(media.duration)}")
+        print(f"  Frame rate  {media.frame_rate:.3f} fps")
+        print(f"  Frames      {len(times) if times is not None else 'unavailable'}")
 
         picker_marks: tuple[float, float] | None = None
         if args.pick:
@@ -88,18 +91,15 @@ def main(argv: list[str] | None = None) -> int:
         events = EventWindow(launch=launch, reached_100=reached_100).validate(media.duration)
 
         clip_end: float | None = None
+        adjustments: list[tuple[str, float, float]] = []
         if times is not None:
             snapped_launch = snap_to_frame(times, events.launch)
             snapped_reached_100 = snap_to_frame(times, events.reached_100)
             if abs(snapped_launch - events.launch) > 0.0005:
-                print(
-                    "Snapped launch to the nearest frame: "
-                    f"{format_timecode(events.launch)} -> {format_timecode(snapped_launch)}"
-                )
+                adjustments.append(("Launch", events.launch, snapped_launch))
             if abs(snapped_reached_100 - events.reached_100) > 0.0005:
-                print(
-                    "Snapped 100 km/h to the nearest frame: "
-                    f"{format_timecode(events.reached_100)} -> {format_timecode(snapped_reached_100)}"
+                adjustments.append(
+                    ("100 km/h", events.reached_100, snapped_reached_100)
                 )
             events = EventWindow(
                 launch=snapped_launch, reached_100=snapped_reached_100
@@ -131,15 +131,26 @@ def main(argv: list[str] | None = None) -> int:
             clip_end=clip_end,
         )
 
-        print(f"Launch:  {format_timecode(events.launch)}")
-        print(f"100 km/h: {format_timecode(events.reached_100)}")
-        print(f"0-100:   {events.elapsed:.3f} seconds")
+        if adjustments:
+            print("\nAdjusted to exact frames")
+            for label, original, snapped in adjustments:
+                print(
+                    f"  {label:<10}  {format_timecode(original)} -> "
+                    f"{format_timecode(snapped)}"
+                )
+
+        print("\nResult")
+        print(f"  Launch      {format_timecode(events.launch)}")
+        print(f"  100 km/h    {format_timecode(events.reached_100)}")
+        print(f"  Time        {events.elapsed:.3f} seconds")
+        print(f"  Output      {output}")
 
         if args.dry_run:
-            print(subprocess.list2cmdline(job.command()))
+            print("\nFFmpeg command")
+            print(f"  {subprocess.list2cmdline(job.command())}")
             return 0
 
-        print(f"Exporting {output.name}...")
+        print(f"\nExporting {output.name}...")
         reporter = _ProgressReporter()
         job.run(reporter)
         reporter.finish()
@@ -176,13 +187,13 @@ def _time_value(argument: str | None, label: str) -> float:
 def _pick_frames(
     input_path: Path, toolchain: Toolchain, times: list[float]
 ) -> tuple[float, float] | None:
-    print(
-        "Pick the frames in your browser. "
-        "The run continues when you press Finish."
-    )
+    print("\nPreparing frame picker...")
+    print("Waiting for launch and 100 km/h marks in the browser...")
     try:
         with tempfile.TemporaryDirectory(prefix="zero2hundred_pick_") as tempdir:
-            return serve_picker(input_path, toolchain, times, Path(tempdir))
+            result = serve_picker(input_path, toolchain, times, Path(tempdir))
+        print("Marks received.")
+        return result
     except (Zero2HundredError, OSError) as exc:
         print(f"Warning: frame picker unavailable: {exc}", file=sys.stderr)
         return None
@@ -197,7 +208,7 @@ class _ProgressReporter:
         if percent == self._last_percent:
             return
         self._last_percent = percent
-        print(f"\rProgress: {percent:3d}%", end="", flush=True)
+        print(f"\r  Progress    {percent:3d}%", end="", flush=True)
 
     def finish(self) -> None:
         if self._last_percent >= 0:
