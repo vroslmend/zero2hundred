@@ -556,7 +556,7 @@ def render_picker_html(video_name: str) -> str:
         <button id="stepForward" type="button" title="Forward 1 frame">+1</button>
         <button id="stepForwardTen" type="button" title="Forward 10 frames">+10</button>
       </div>
-      <p class="key-hint">Space plays. Hold an arrow to inspect every frame. Shift skips 10. Z toggles Gauge view.</p>
+      <p class="key-hint">Space plays. Tap an arrow for 1 frame. Hold to keep moving. Shift skips 10. Z toggles Gauge view.</p>
     </div>
   </section>
   <aside class="timing-panel" aria-label="Run timing marks">
@@ -615,7 +615,10 @@ def render_picker_html(video_name: str) -> str:
   let hundred = null;
   let launchIndex = null;
   let hundredIndex = null;
+  const ARROW_HOLD_DELAY_MS = 350;
   let heldStep = 0;
+  let heldKey = null;
+  let holdTimer = null;
   let finished = false;
 
   function nearestIndex(value) {{
@@ -678,6 +681,25 @@ def render_picker_html(video_name: str) -> str:
     requestedIndex = Math.max(0, Math.min(times.length - 1, index));
     video.pause();
     pumpSeek();
+  }}
+
+  function stopHeldStep(key) {{
+    if (key && heldKey !== key) return;
+    if (holdTimer !== null) clearTimeout(holdTimer);
+    holdTimer = null;
+    heldKey = null;
+    heldStep = 0;
+  }}
+
+  function beginArrowStep(key, step) {{
+    stopHeldStep();
+    heldKey = key;
+    requestIndex(requestedIndex + step);
+    holdTimer = setTimeout(function () {{
+      holdTimer = null;
+      heldStep = step;
+      if (!seekInFlight && !waitingForPaint) requestIndex(requestedIndex + heldStep);
+    }}, ARROW_HOLD_DELAY_MS);
   }}
 
   function finishSeek() {{
@@ -771,8 +793,8 @@ def render_picker_html(video_name: str) -> str:
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {{
       event.preventDefault();
       if (event.repeat) return;
-      heldStep = (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 10 : 1);
-      requestIndex(requestedIndex + heldStep);
+      const step = (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 10 : 1);
+      beginArrowStep(event.key, step);
       return;
     }}
     if (event.key === "Home") destination = 0;
@@ -800,9 +822,9 @@ def render_picker_html(video_name: str) -> str:
   }});
 
   document.addEventListener("keyup", function (event) {{
-    if (event.key === "ArrowLeft" || event.key === "ArrowRight") heldStep = 0;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") stopHeldStep(event.key);
   }});
-  window.addEventListener("blur", function () {{ heldStep = 0; }});
+  window.addEventListener("blur", function () {{ stopHeldStep(); }});
 
   finishButton.addEventListener("click", async function () {{
     finishButton.disabled = true;

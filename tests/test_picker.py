@@ -253,6 +253,8 @@ class RenderPickerHtmlTests(unittest.TestCase):
         self.assertIn('id="jumpHundred"', text)
         self.assertIn("Use these frames", text)
         self.assertIn("heldStep", text)
+        self.assertIn("const ARROW_HOLD_DELAY_MS = 350", text)
+        self.assertIn("clearTimeout(holdTimer)", text)
         self.assertIn('addEventListener("keyup"', text)
         self.assertIn('navigator.sendBeacon("/cancel")', text)
         self.assertIn('window.addEventListener("pagehide"', text)
