@@ -9,11 +9,11 @@ from zero2hundred.errors import ConfigurationError
 
 POSITIONS = (
     "top-left",
-    "top-right",
     "top-center",
+    "top-right",
     "bottom-left",
-    "bottom-right",
     "bottom-center",
+    "bottom-right",
 )
 TIMER_STYLES = ("stopwatch", "hms")
 TIMER_FORMATS = ("seconds", "stopwatch")

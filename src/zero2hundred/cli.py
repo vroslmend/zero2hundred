@@ -8,7 +8,7 @@ import sys
 import tempfile
 
 from zero2hundred import __version__
-from zero2hundred.config import POSITIONS, load_settings
+from zero2hundred.config import POSITIONS, RenderSettings, load_settings
 from zero2hundred.errors import Zero2HundredError
 from zero2hundred.events import EventWindow
 from zero2hundred.frames import frame_after, frame_times, snap_to_frame
@@ -23,29 +23,77 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="zero2hundred",
         description="Create a timed 0-100 km/h video from dashboard footage.",
+        epilog=(
+            "Timing examples:\n"
+            "  zero2hundred run.mp4 --pick\n"
+            "  zero2hundred run.mp4 --start 1.395 --end 10.982\n"
+            "  zero2hundred run.mp4 --pick --dry-run"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("input", nargs="?", help="input video path")
-    parser.add_argument("--start", metavar="TIME", help="launch timestamp")
-    parser.add_argument("--end", metavar="TIME", help="100 km/h timestamp")
-    parser.add_argument("-o", "--output", type=Path, help="output MP4 path")
-    parser.add_argument("--freeze", type=float, help="freeze duration in seconds")
-    parser.add_argument("--position", choices=POSITIONS, help="timer position")
-    parser.add_argument("--font", help="timer font family")
-    parser.add_argument("--font-file", help="path to a timer font file")
-    parser.add_argument("--trim-intro", action="store_true", help="start output at launch")
-    parser.add_argument(
-        "--end-after-freeze",
-        action="store_true",
-        help="end the video after the frozen result instead of continuing",
-    )
-    parser.add_argument(
+    parser.add_argument("input", nargs="?", metavar="VIDEO", help="input video path")
+
+    timing = parser.add_argument_group("timing")
+    timing.add_argument("--start", metavar="TIME", help="launch timestamp")
+    timing.add_argument("--end", metavar="TIME", help="100 km/h timestamp")
+    timing.add_argument(
         "--pick",
         action="store_true",
-        help="open a frame picker in the browser to find exact times",
+        help="mark both exact frames in the browser",
     )
-    parser.add_argument("--overwrite", action="store_true", help="replace existing output")
-    parser.add_argument("--config", type=Path, help="TOML configuration file")
-    parser.add_argument("--dry-run", action="store_true", help="print FFmpeg command")
+
+    clip = parser.add_argument_group("clip")
+    clip.add_argument(
+        "--trim-intro", action="store_true", help="start output at launch"
+    )
+    ending = clip.add_mutually_exclusive_group()
+    ending.add_argument(
+        "--end-after-freeze",
+        dest="continue_after_freeze",
+        action="store_false",
+        help="end the video after the frozen result instead of continuing",
+    )
+    ending.add_argument(
+        "--continue-after-freeze",
+        dest="continue_after_freeze",
+        action="store_true",
+        help="continue the video after the frozen result",
+    )
+    ending.set_defaults(continue_after_freeze=None)
+
+    appearance = parser.add_argument_group("timer appearance")
+    appearance.add_argument(
+        "--freeze", type=float, metavar="SECONDS", help="frozen result duration"
+    )
+    appearance.add_argument(
+        "--position",
+        choices=POSITIONS,
+        metavar="POSITION",
+        help=(
+            "timer position: top-left, top-center, top-right, bottom-left, "
+            "bottom-center, or bottom-right"
+        ),
+    )
+    appearance.add_argument("--font", metavar="NAME", help="timer font family")
+    appearance.add_argument("--font-file", metavar="PATH", help="timer font file")
+
+    output = parser.add_argument_group("output")
+    output.add_argument(
+        "-o", "--output", type=Path, metavar="PATH", help="output MP4 path"
+    )
+    output.add_argument(
+        "--overwrite", action="store_true", help="replace an existing output file"
+    )
+    output.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="show the FFmpeg command without exporting",
+    )
+
+    settings = parser.add_argument_group("configuration")
+    settings.add_argument(
+        "--config", type=Path, metavar="PATH", help="TOML settings file"
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
 
@@ -53,8 +101,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.pick and (args.start is not None or args.end is not None):
+        parser.error(
+            "--pick cannot be combined with --start or --end; "
+            "use the browser picker or typed timestamps"
+        )
 
     try:
+        settings = _render_settings(args)
         input_path = _input_path(args.input)
         toolchain = find_toolchain()
         print(f"Inspecting {input_path.name}...")
@@ -111,20 +165,6 @@ def main(argv: list[str] | None = None) -> int:
             ).validate(media.duration)
             clip_end = frame_after(times, events.reached_100)
 
-        settings = load_settings(args.config)
-        overrides = {}
-        if args.freeze is not None:
-            overrides["freeze_duration"] = args.freeze
-        if args.position is not None:
-            overrides["position"] = args.position
-        if args.font is not None:
-            overrides["font"] = args.font
-        if args.font_file is not None:
-            overrides["font_file"] = args.font_file
-        if args.end_after_freeze:
-            overrides["continue_after_freeze"] = False
-        settings = replace(settings, **overrides).validated()
-
         preferred_output = args.output or default_output_path(input_path)
         output = preferred_output if args.overwrite or args.output else available_output_path(preferred_output)
         job = RenderJob(
@@ -175,6 +215,22 @@ def main(argv: list[str] | None = None) -> int:
     except (Zero2HundredError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
+
+
+def _render_settings(args: argparse.Namespace) -> RenderSettings:
+    settings = load_settings(args.config)
+    overrides = {}
+    if args.freeze is not None:
+        overrides["freeze_duration"] = args.freeze
+    if args.position is not None:
+        overrides["position"] = args.position
+    if args.font is not None:
+        overrides["font"] = args.font
+    if args.font_file is not None:
+        overrides["font_file"] = args.font_file
+    if args.continue_after_freeze is not None:
+        overrides["continue_after_freeze"] = args.continue_after_freeze
+    return replace(settings, **overrides).validated()
 
 
 def _input_path(argument: str | None) -> Path:

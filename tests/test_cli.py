@@ -16,10 +16,11 @@ class PickerCliTests(unittest.TestCase):
         self,
         arguments: list[str],
         picker_result: tuple[float, float] | BaseException,
+        settings: RenderSettings | None = None,
     ) -> tuple[int, str, str, mock.Mock, mock.Mock, mock.Mock]:
         toolchain = Toolchain(ffmpeg="ffmpeg", ffprobe="ffprobe")
         media = SimpleNamespace(width=1080, height=1920, frame_rate=30.0, duration=2.0)
-        settings = RenderSettings()
+        settings = settings or RenderSettings()
         render_job = mock.Mock()
         render_job.command.return_value = ["ffmpeg", "-version"]
         time_value = mock.Mock(
@@ -73,10 +74,10 @@ class PickerCliTests(unittest.TestCase):
             render_job_type,
         )
 
-    def test_picker_marks_skip_prompts_and_explicit_start_wins(self) -> None:
+    def test_picker_marks_skip_time_prompts(self) -> None:
         result, stdout, stderr, picker, time_value, render_job_type = self.run_main(
-            ["input.mp4", "--pick", "--start", "0.5", "--dry-run"],
-            (0.0, 1.0),
+            ["input.mp4", "--pick", "--dry-run"],
+            (0.5, 1.0),
         )
 
         self.assertEqual(result, 0)
@@ -100,9 +101,57 @@ class PickerCliTests(unittest.TestCase):
         self.assertIn("  Output      ", stdout)
         self.assertIn("\nFFmpeg command\n  ffmpeg -version", stdout)
         picker.assert_called_once()
-        time_value.assert_called_once_with("0.5", "Launch timestamp")
-        self.assertNotIn("100 km/h timestamp", [call.args[1] for call in time_value.call_args_list])
+        time_value.assert_not_called()
         self.assertTrue(render_job_type.call_args.kwargs["settings"].continue_after_freeze)
+
+    def test_picker_cannot_be_combined_with_typed_times(self) -> None:
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as raised:
+                cli.main(["input.mp4", "--pick", "--start", "0.5"])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn(
+            "--pick cannot be combined with --start or --end", stderr.getvalue()
+        )
+
+    def test_typed_times_do_not_open_the_picker(self) -> None:
+        result, _, stderr, picker, time_value, _ = self.run_main(
+            [
+                "input.mp4",
+                "--start",
+                "0.5",
+                "--end",
+                "1.0",
+                "--dry-run",
+            ],
+            (0.0, 0.0),
+        )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(stderr, "")
+        picker.assert_not_called()
+        self.assertEqual(
+            [call.args for call in time_value.call_args_list],
+            [("0.5", "Launch timestamp"), ("1.0", "100 km/h timestamp")],
+        )
+
+    def test_invalid_render_setting_fails_before_video_inspection(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with mock.patch("zero2hundred.cli._input_path") as input_path:
+            with contextlib.redirect_stdout(stdout):
+                with contextlib.redirect_stderr(stderr):
+                    result = cli.main(["input.mp4", "--freeze", "-1"])
+
+        self.assertEqual(result, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(
+            stderr.getvalue(), "Error: freeze_duration cannot be negative\n"
+        )
+        input_path.assert_not_called()
 
     def test_picker_oserror_warns_and_falls_back_to_manual_values(self) -> None:
         result, _, stderr, _, time_value, _ = self.run_main(
@@ -153,6 +202,26 @@ class PickerCliTests(unittest.TestCase):
         self.assertEqual(stderr, "")
         self.assertIn("  Ending      End after freeze", stdout)
         self.assertFalse(
+            render_job_type.call_args.kwargs["settings"].continue_after_freeze
+        )
+
+    def test_continue_after_freeze_overrides_a_configured_short_ending(self) -> None:
+        configured = RenderSettings(continue_after_freeze=False)
+        result, stdout, stderr, _, _, render_job_type = self.run_main(
+            [
+                "input.mp4",
+                "--pick",
+                "--continue-after-freeze",
+                "--dry-run",
+            ],
+            (0.5, 1.0),
+            settings=configured,
+        )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(stderr, "")
+        self.assertIn("  Ending      Continue after freeze", stdout)
+        self.assertTrue(
             render_job_type.call_args.kwargs["settings"].continue_after_freeze
         )
 
