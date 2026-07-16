@@ -3,8 +3,8 @@ import unittest
 
 from zero2hundred.config import RenderSettings
 from zero2hundred.events import EventWindow
-from zero2hundred.media import MediaInfo
-from zero2hundred.render import build_filter_graph
+from zero2hundred.media import MediaInfo, Toolchain
+from zero2hundred.render import RenderJob, build_filter_graph
 
 
 class RenderGraphTests(unittest.TestCase):
@@ -69,6 +69,63 @@ class RenderGraphTests(unittest.TestCase):
         )
         self.assertIn("trim=start=4.000000", graph)
         self.assertIn("enable='gte(t,0.000000)'", graph)
+
+    def test_explicit_clip_end_used_for_trim_and_atrim(self) -> None:
+        graph = build_filter_graph(
+            self.media,
+            self.events,
+            RenderSettings(),
+            trim_intro=False,
+            clip_end=10.123456,
+        )
+        self.assertIn("trim=start=0.000000:end=10.123456", graph)
+        self.assertIn("atrim=start=0.000000:end=10.123456", graph)
+
+    def test_none_clip_end_preserves_average_frame_fallback(self) -> None:
+        graph = build_filter_graph(
+            self.media,
+            self.events,
+            RenderSettings(),
+            trim_intro=False,
+        )
+        expected_end = self.events.reached_100 + self.media.frame_duration
+        self.assertIn(f"trim=start=0.000000:end={expected_end:.6f}", graph)
+        self.assertIn(f"atrim=start=0.000000:end={expected_end:.6f}", graph)
+
+
+class RenderJobClipEndTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.media = MediaInfo(
+            path=Path("run.mp4"),
+            duration=20,
+            width=1920,
+            height=1080,
+            frame_rate=30,
+            has_audio=True,
+        )
+        self.events = EventWindow(launch=4.0, reached_100=10.0)
+        self.toolchain = Toolchain(ffmpeg="ffmpeg", ffprobe="ffprobe")
+
+    def _job(self, clip_end: float | None) -> RenderJob:
+        return RenderJob(
+            media=self.media,
+            events=self.events,
+            output=Path("out.mp4"),
+            settings=RenderSettings(),
+            toolchain=self.toolchain,
+            clip_end=clip_end,
+        )
+
+    def test_explicit_clip_end_used_for_to_argument(self) -> None:
+        command = self._job(10.123456).command()
+        index = command.index("-to")
+        self.assertEqual(command[index + 1], "10.123456")
+
+    def test_none_clip_end_preserves_average_frame_fallback(self) -> None:
+        command = self._job(None).command()
+        index = command.index("-to")
+        expected = self.events.reached_100 + self.media.frame_duration
+        self.assertEqual(command[index + 1], f"{expected:.6f}")
 
 
 if __name__ == "__main__":

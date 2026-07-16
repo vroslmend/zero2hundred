@@ -10,6 +10,7 @@ from zero2hundred import __version__
 from zero2hundred.config import POSITIONS, load_settings
 from zero2hundred.errors import Zero2HundredError
 from zero2hundred.events import EventWindow
+from zero2hundred.frames import frame_after, frame_times, snap_to_frame
 from zero2hundred.media import find_toolchain, probe_video
 from zero2hundred.paths import available_output_path, default_output_path, parse_dropped_path
 from zero2hundred.render import RenderJob
@@ -55,6 +56,30 @@ def main(argv: list[str] | None = None) -> int:
         reached_100 = _time_value(args.end, "100 km/h timestamp")
         events = EventWindow(launch=launch, reached_100=reached_100).validate(media.duration)
 
+        clip_end: float | None = None
+        print("Reading frame timestamps...")
+        try:
+            times = frame_times(input_path, toolchain)
+        except Zero2HundredError as exc:
+            print(f"Warning: could not read frame timestamps: {exc}", file=sys.stderr)
+        else:
+            snapped_launch = snap_to_frame(times, events.launch)
+            snapped_reached_100 = snap_to_frame(times, events.reached_100)
+            if abs(snapped_launch - events.launch) > 0.0005:
+                print(
+                    "Snapped launch to the nearest frame: "
+                    f"{format_timecode(events.launch)} -> {format_timecode(snapped_launch)}"
+                )
+            if abs(snapped_reached_100 - events.reached_100) > 0.0005:
+                print(
+                    "Snapped 100 km/h to the nearest frame: "
+                    f"{format_timecode(events.reached_100)} -> {format_timecode(snapped_reached_100)}"
+                )
+            events = EventWindow(
+                launch=snapped_launch, reached_100=snapped_reached_100
+            ).validate(media.duration)
+            clip_end = frame_after(times, events.reached_100)
+
         settings = load_settings(args.config)
         overrides = {}
         if args.freeze is not None:
@@ -77,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
             toolchain=toolchain,
             trim_intro=args.trim_intro,
             overwrite=args.overwrite,
+            clip_end=clip_end,
         )
 
         print(f"Launch:  {format_timecode(events.launch)}")

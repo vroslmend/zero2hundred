@@ -24,11 +24,13 @@ class RenderJob:
     toolchain: Toolchain
     trim_intro: bool = False
     overwrite: bool = False
+    clip_end: float | None = None
 
     @property
     def output_duration(self) -> float:
-        content = self.events.elapsed if self.trim_intro else self.events.reached_100
-        return content + self.media.frame_duration + self.settings.freeze_duration
+        end = _resolve_clip_end(self.media, self.events, self.clip_end)
+        content = (end - self.events.launch) if self.trim_intro else end
+        return content + self.settings.freeze_duration
 
     def command(self) -> list[str]:
         graph = build_filter_graph(
@@ -36,13 +38,14 @@ class RenderJob:
             self.events,
             self.settings,
             trim_intro=self.trim_intro,
+            clip_end=self.clip_end,
         )
         command = [
             self.toolchain.ffmpeg,
             "-hide_banner",
             "-y" if self.overwrite else "-n",
             "-to",
-            f"{min(self.media.duration, self.events.reached_100 + self.media.frame_duration):.6f}",
+            f"{_resolve_clip_end(self.media, self.events, self.clip_end):.6f}",
             "-i",
             str(self.media.path),
             "-filter_complex",
@@ -125,10 +128,11 @@ def build_filter_graph(
     settings: RenderSettings,
     *,
     trim_intro: bool,
+    clip_end: float | None = None,
 ) -> str:
     clip_start = events.launch if trim_intro else 0.0
     timer_start = 0.0 if trim_intro else events.launch
-    clip_end = min(media.duration, events.reached_100 + media.frame_duration)
+    trim_end = _resolve_clip_end(media, events, clip_end)
 
     x, y = _position(settings.position, settings.margin_ratio)
     timer = _timer_text(timer_start, events.elapsed, settings.timer_style)
@@ -151,7 +155,7 @@ def build_filter_graph(
         drawtext_options.append(f"enable='gte(t,{timer_start:.6f})'")
     drawtext = "drawtext=" + ":".join(drawtext_options)
     video_chain = (
-        f"[0:v]trim=start={clip_start:.6f}:end={clip_end:.6f},"
+        f"[0:v]trim=start={clip_start:.6f}:end={trim_end:.6f},"
         f"setpts=PTS-STARTPTS,fps=fps={media.frame_rate:.6f},{drawtext},"
         f"tpad=stop_mode=clone:stop_duration={settings.freeze_duration:.6f}[video]"
     )
@@ -159,9 +163,8 @@ def build_filter_graph(
     if not media.has_audio:
         return video_chain
 
-    audio_end = min(media.duration, events.reached_100 + media.frame_duration)
     audio_chain = (
-        f"[0:a]atrim=start={clip_start:.6f}:end={audio_end:.6f},"
+        f"[0:a]atrim=start={clip_start:.6f}:end={trim_end:.6f},"
         "asetpts=PTS-STARTPTS,"
         f"apad=pad_dur={settings.freeze_duration:.6f}[audio]"
     )
@@ -201,3 +204,9 @@ def _position(position: str, margin: float) -> tuple[str, str]:
 
 def _escape_filter_value(value: str) -> str:
     return value.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+
+
+def _resolve_clip_end(media: MediaInfo, events: EventWindow, clip_end: float | None) -> float:
+    if clip_end is not None:
+        return min(media.duration, clip_end)
+    return min(media.duration, events.reached_100 + media.frame_duration)
