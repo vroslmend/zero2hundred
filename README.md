@@ -1,18 +1,14 @@
 # zero2hundred
 
-I used to edit my 0-100 km/h runs by hand: drop a stopwatch overlay on the
-clip, then cut it at the exact frame the needle touches 100. This tool does
-that edit in one command.
+Command line tool that turns dashboard footage into a finished 0-100 km/h
+clip. Give it the launch and 100 km/h timestamps and it overlays a stopwatch
+counting up in big MM:SS:cc digits (00:08:79 style), cuts the video at the
+frame the speedometer hits 100, and holds that frame for two seconds so the
+time stays on screen. Audio is kept and the source file is never touched.
 
-Point it at your dashboard footage and give it two timestamps, launch and
-100 km/h. It exports a finished clip with a stopwatch counting up from launch
-in big MM:SS:cc digits at the bottom (00:08:79 style). At 100 the video stops
-and holds the final frame for two seconds, so the time sits on screen. Audio
-stays. The source file is never touched.
-
-Phone footage works as-is. Portrait videos keep their orientation, and because
-phone cameras record with a variable frame rate, the times you type get
-snapped to actual frames. The cut lands exactly where you picked it.
+Phone footage works as-is. Portrait videos keep their orientation, and the
+timestamps you enter get snapped to real frames, so variable frame rate
+recordings cut exactly where you picked.
 
 ## Requirements
 
