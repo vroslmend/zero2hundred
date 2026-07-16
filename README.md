@@ -1,20 +1,23 @@
 # zero2hundred
 
-`zero2hundred` turns dashboard footage into a finished 0–100 km/h video: a large
-stopwatch overlay counts from the launch, the clip cuts at the moment 100 km/h
-is reached, the final frame freezes for two seconds with the elapsed time on
-screen, and the result is exported next to the source. The source video is
-never modified.
+I used to edit my 0-100 km/h runs by hand: drop a stopwatch overlay on the
+clip, then cut it at the exact frame the needle touches 100. This tool does
+that edit in one command.
 
-The timer renders as `MM:SS:cc` (for example `00:08:79`) centered at the bottom
-of the frame, white with a black border. Rotated phone footage is handled
-automatically, and the timestamps you enter are snapped to real video frames,
-so variable-frame-rate phone recordings stay accurate.
+Point it at your dashboard footage and give it two timestamps, launch and
+100 km/h. It exports a finished clip with a stopwatch counting up from launch
+in big MM:SS:cc digits at the bottom (00:08:79 style). At 100 the video stops
+and holds the final frame for two seconds, so the time sits on screen. Audio
+stays. The source file is never touched.
+
+Phone footage works as-is. Portrait videos keep their orientation, and because
+phone cameras record with a variable frame rate, the times you type get
+snapped to actual frames. The cut lands exactly where you picked it.
 
 ## Requirements
 
 - Python 3.11 or newer
-- FFmpeg and FFprobe available on `PATH`
+- FFmpeg and FFprobe on `PATH`
 
 ## Install
 
@@ -22,54 +25,54 @@ so variable-frame-rate phone recordings stay accurate.
 python -m pip install -e .
 ```
 
-## Use
-
-Pass a video and the launch and 100 km/h timestamps:
+## Usage
 
 ```powershell
 zero2hundred "D:\Videos\run.mp4" --start 1.395 --end 10.193
 ```
 
-Run without arguments for an interactive prompt. On Windows, a video can be
-dragged from File Explorer into the terminal when the input prompt is visible.
+Run it with no arguments and it will ask for everything. On Windows you can
+drag the video from Explorer straight into the terminal.
 
-To find the exact frames, add `--pick`: a frame picker opens in your browser
-where you can step frame by frame (arrow keys, Shift for ×10), see each frame's
-exact timestamp, and copy it. Enter the copied launch and 100 km/h times back
-in the terminal.
+If you don't know the exact frames, use the picker:
 
 ```powershell
 zero2hundred "D:\Videos\run.mp4" --pick
 ```
 
-By default, the result is saved beside the input as `run_0-100.mp4`.
+It opens a page in your browser with every frame of the video. Arrow keys move
+one frame, Shift+arrows move ten. Step to the launch frame, copy its
+timestamp, do the same for the 100 km/h frame, then paste both back in the
+terminal.
 
-Useful options:
+The output lands next to the input as `run_0-100.mp4`.
+
+All options:
 
 ```text
---pick                 Open a frame picker in the browser to find exact times
---output PATH          Choose the output path
---freeze SECONDS       Change the final freeze duration
+--pick                 Browse frames in the browser to find exact times
+--output PATH          Where to save the result
+--freeze SECONDS       How long the final frame holds
 --position POSITION    top-left, top-center, top-right,
-                       bottom-left, bottom-center, or bottom-right
+                       bottom-left, bottom-center, bottom-right
 --font NAME            Timer font family
 --font-file PATH       Timer font file
---trim-intro           Remove footage before the launch
---config PATH          Load rendering defaults from a TOML file
+--trim-intro           Cut everything before the launch
+--config PATH          Load defaults from a TOML file
 --overwrite            Replace an existing output file
---dry-run              Print the FFmpeg command without executing it
+--dry-run              Print the FFmpeg command instead of running it
 ```
 
-Time values may be written as `4.267`, `00:04.267`, or `00:00:04.267`.
+Times can be written as `4.267`, `00:04.267`, or `00:00:04.267`.
 
 ## Configuration
 
-Command-line options take precedence over a TOML configuration file:
+Anything you pass on the command line wins over the TOML file:
 
 ```toml
 freeze_duration = 2.0
 position = "bottom-center"
-timer_style = "stopwatch"   # or "hms" for HH:MM:SS.mmm
+timer_style = "stopwatch"   # "hms" gives HH:MM:SS.mmm instead
 font = "Arial"
 font_size_ratio = 0.065
 margin_ratio = 0.04
@@ -82,13 +85,11 @@ preset = "medium"
 audio_bitrate = "192k"
 ```
 
-## Accuracy
+## A note on the numbers
 
-The measurement is only as truthful as the speedometer on screen. Car
-speedometers are required to read at or above the true speed and commonly
-over-read by several percent, so an indicated 100 km/h arrives a little early.
-Treat the result as a nice clip, not as instrumentation — GPS-based timing
-hardware is the right tool for real numbers.
+The timer stops when the speedometer shows 100, and speedometers read a few
+percent high from the factory. So the clip flatters your car a little. If you
+want real numbers, get a GPS box like a Dragy. This is for the video.
 
 ## Tests
 
