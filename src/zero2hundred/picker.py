@@ -18,6 +18,8 @@ from zero2hundred.media import Toolchain
 DEFAULT_THUMBNAIL_LIMIT = 1200
 _CHUNK_SIZE = 64 * 1024
 _RANGE_PATTERN = re.compile(r"bytes=(\d*)-(\d*)$")
+_BROWSER_SAFE_CODECS = {"h264", "vp8", "vp9", "av1"}
+_BROWSER_SAFE_PIXEL_FORMATS = {"yuv420p", "yuvj420p"}
 
 
 def thumbnail_indices(count: int, limit: int = DEFAULT_THUMBNAIL_LIMIT) -> list[int]:
@@ -96,6 +98,103 @@ def _run_ffmpeg(
         errors="replace",
         check=False,
     )
+
+
+def prepare_browser_video(
+    path: Path, toolchain: Toolchain, workdir: Path
+) -> Path:
+    """Return `path` when browsers can decode it, otherwise create an H.264 preview."""
+    codec, pixel_format = _browser_video_format(path, toolchain)
+    if (
+        path.suffix.lower() in {".mp4", ".m4v"}
+        and codec in _BROWSER_SAFE_CODECS
+        and pixel_format in _BROWSER_SAFE_PIXEL_FORMATS
+    ):
+        return path
+
+    print("Creating a browser-compatible full-resolution preview...")
+    preview = workdir / "browser-preview.mp4"
+    # Passthrough pacing keeps every VFR frame. The demuxer time base keeps each encoded
+    # frame on its original PTS instead of rounding timestamps to the nominal frame rate.
+    # Short GOPs make repeated browser seeks responsive without changing frame order.
+    command = [
+        toolchain.ffmpeg,
+        "-hide_banner",
+        "-y",
+        "-i",
+        str(path),
+        "-map",
+        "0:v:0",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "20",
+        "-pix_fmt",
+        "yuv420p",
+        "-fps_mode",
+        "passthrough",
+        "-enc_time_base",
+        "demux",
+        "-g",
+        "12",
+        "-keyint_min",
+        "12",
+        "-sc_threshold",
+        "0",
+        "-movflags",
+        "+faststart",
+        str(preview),
+    ]
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if completed.returncode:
+        detail = completed.stderr.strip() or "unknown FFmpeg error"
+        raise MediaError(f"could not create a browser-compatible preview: {detail}")
+    if not preview.is_file():
+        raise MediaError("could not create a browser-compatible preview")
+    return preview
+
+
+def _browser_video_format(path: Path, toolchain: Toolchain) -> tuple[str, str]:
+    command = [
+        toolchain.ffprobe,
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=codec_name,pix_fmt",
+        "-of",
+        "json",
+        str(path),
+    ]
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if completed.returncode:
+        detail = completed.stderr.strip() or "unknown FFprobe error"
+        raise MediaError(f"could not inspect video compatibility for {path.name}: {detail}")
+    try:
+        stream = json.loads(completed.stdout)["streams"][0]
+        return str(stream["codec_name"]).lower(), str(stream["pix_fmt"]).lower()
+    except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise MediaError(
+            f"could not inspect video compatibility for {path.name}"
+        ) from exc
 
 
 def render_picker_html(video_name: str) -> str:
@@ -332,6 +431,9 @@ def render_picker_html(video_name: str) -> str:
   const statusEl = document.getElementById("status");
   let times = [];
   let selected = 0;
+  let requestedIndex = 0;
+  let seekInFlight = false;
+  let waitingForPaint = false;
   let thumbnailStep = 1;
   let selectedThumbnail = null;
   let launch = null;
@@ -349,7 +451,7 @@ def render_picker_html(video_name: str) -> str:
     return low;
   }}
 
-  function showIndex(index, seek) {{
+  function showIndex(index) {{
     if (!times.length) return;
     selected = Math.max(0, Math.min(times.length - 1, index));
     timeEl.textContent = times[selected].toFixed(3);
@@ -366,11 +468,53 @@ def render_picker_html(video_name: str) -> str:
         selectedThumbnail.scrollIntoView({{inline: "center", block: "nearest"}});
       }}
     }}
-    if (seek) video.currentTime = times[selected] + 0.002;
   }}
 
-  function syncFromVideo() {{
-    if (times.length) showIndex(nearestIndex(video.currentTime), false);
+  function afterVideoPaint(callback) {{
+    let finished = false;
+    function finish() {{
+      if (finished) return;
+      finished = true;
+      callback();
+    }}
+    if (typeof video.requestVideoFrameCallback === "function") {{
+      video.requestVideoFrameCallback(finish);
+      setTimeout(finish, 50);
+    }} else {{
+      requestAnimationFrame(finish);
+    }}
+  }}
+
+  function pumpSeek() {{
+    if (!times.length || seekInFlight || waitingForPaint) return;
+    seekInFlight = true;
+    video.currentTime = times[requestedIndex] + 0.002;
+  }}
+
+  function requestIndex(index) {{
+    if (!times.length) return;
+    requestedIndex = Math.max(0, Math.min(times.length - 1, index));
+    video.pause();
+    pumpSeek();
+  }}
+
+  function finishSeek() {{
+    const landed = nearestIndex(video.currentTime);
+    const wasQueuedSeek = seekInFlight;
+    seekInFlight = false;
+    if (!wasQueuedSeek) requestedIndex = landed;
+    showIndex(landed);
+    waitingForPaint = true;
+    afterVideoPaint(function () {{
+      waitingForPaint = false;
+      if (landed !== requestedIndex) pumpSeek();
+    }});
+  }}
+
+  function syncPlayback() {{
+    if (!times.length || seekInFlight || waitingForPaint || video.paused) return;
+    requestedIndex = nearestIndex(video.currentTime);
+    showIndex(requestedIndex);
   }}
 
   function togglePlayback() {{
@@ -394,13 +538,16 @@ def render_picker_html(video_name: str) -> str:
   launchButton.addEventListener("click", function () {{ mark(launchButton, "launch"); }});
   hundredButton.addEventListener("click", function () {{ mark(hundredButton, "hundred"); }});
   video.addEventListener("click", togglePlayback);
-  video.addEventListener("seeked", syncFromVideo);
-  video.addEventListener("timeupdate", syncFromVideo);
+  video.addEventListener("seeking", function () {{
+    if (!seekInFlight) requestedIndex = nearestIndex(video.currentTime);
+  }});
+  video.addEventListener("seeked", finishSeek);
+  video.addEventListener("timeupdate", syncPlayback);
 
   document.addEventListener("keydown", function (event) {{
     let destination = null;
-    if (event.key === "ArrowLeft") destination = selected + (event.shiftKey ? -10 : -1);
-    else if (event.key === "ArrowRight") destination = selected + (event.shiftKey ? 10 : 1);
+    if (event.key === "ArrowLeft") destination = requestedIndex + (event.shiftKey ? -10 : -1);
+    else if (event.key === "ArrowRight") destination = requestedIndex + (event.shiftKey ? 10 : 1);
     else if (event.key === "Home") destination = 0;
     else if (event.key === "End") destination = times.length - 1;
     else if (event.code === "Space") {{
@@ -417,8 +564,7 @@ def render_picker_html(video_name: str) -> str:
       return;
     }} else return;
     event.preventDefault();
-    video.pause();
-    showIndex(destination, true);
+    requestIndex(destination);
   }});
 
   finishButton.addEventListener("click", async function () {{
@@ -459,13 +605,12 @@ def render_picker_html(video_name: str) -> str:
         label.textContent = times[frame].toFixed(3);
         button.append(image, label);
         button.addEventListener("click", function () {{
-          video.pause();
-          showIndex(frame, true);
+          requestIndex(frame);
         }});
         filmstrip.appendChild(button);
         thumbnailNumber += 1;
       }}
-      showIndex(0, true);
+      requestIndex(0);
     }} catch (error) {{
       statusEl.textContent = "Could not load frame times. Close this page and try again.";
     }}
@@ -481,8 +626,16 @@ def render_picker_html(video_name: str) -> str:
 class _PickerServer:
     """Serve one picker session on a loopback-only ephemeral port."""
 
-    def __init__(self, video_path: Path, workdir: Path, times: list[float]) -> None:
+    def __init__(
+        self,
+        video_path: Path,
+        workdir: Path,
+        times: list[float],
+        *,
+        video_name: str | None = None,
+    ) -> None:
         self.video_path = video_path.resolve()
+        self.video_name = video_name or video_path.name
         self.frames_dir = (workdir / "frames").resolve()
         self.times = list(times)
         self.result_event = threading.Event()
@@ -525,7 +678,7 @@ class _PickerServer:
     def _handle_get(self, handler: BaseHTTPRequestHandler) -> None:
         path = unquote(urlsplit(handler.path).path)
         if path == "/":
-            payload = render_picker_html(self.video_path.name).encode("utf-8")
+            payload = render_picker_html(self.video_name).encode("utf-8")
             self._send_bytes(handler, 200, payload, "text/html; charset=utf-8")
         elif path == "/times":
             payload = json.dumps(self.times, separators=(",", ":")).encode("utf-8")
@@ -686,7 +839,8 @@ def serve_picker(
             file=sys.stderr,
         )
 
-    server = _PickerServer(path, workdir, times)
+    browser_video = prepare_browser_video(path, toolchain, workdir)
+    server = _PickerServer(browser_video, workdir, times, video_name=path.name)
     server.start()
     try:
         webbrowser.open(server.url)

@@ -8,10 +8,12 @@ import tempfile
 import unittest
 from unittest import mock
 
+from zero2hundred.errors import MediaError
 from zero2hundred.media import Toolchain
 from zero2hundred.picker import (
     _PickerServer,
     extract_thumbnails,
+    prepare_browser_video,
     render_picker_html,
     serve_picker,
     thumbnail_indices,
@@ -85,6 +87,101 @@ class ExtractThumbnailsTests(unittest.TestCase):
         self.assertIn("0", calls[1])
 
 
+class PrepareBrowserVideoTests(unittest.TestCase):
+    def test_keeps_browser_safe_h264_mp4_unchanged(self) -> None:
+        toolchain = Toolchain(ffmpeg="ffmpeg", ffprobe="ffprobe")
+        probe = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=json.dumps(
+                {"streams": [{"codec_name": "h264", "pix_fmt": "yuv420p"}]}
+            ),
+            stderr="",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "input.mp4"
+            source.write_bytes(b"video")
+            with mock.patch(
+                "zero2hundred.picker.subprocess.run", return_value=probe
+            ) as run:
+                result = prepare_browser_video(source, toolchain, Path(tmp))
+
+        self.assertEqual(result, source)
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.args[0][0], "ffprobe")
+
+    def test_transcodes_hevc_10_bit_with_passthrough_timing(self) -> None:
+        toolchain = Toolchain(ffmpeg="ffmpeg", ffprobe="ffprobe")
+        commands = []
+
+        def fake_run(command, **kwargs):
+            commands.append(command)
+            if command[0] == "ffprobe":
+                return subprocess.CompletedProcess(
+                    command,
+                    0,
+                    stdout=json.dumps(
+                        {
+                            "streams": [
+                                {"codec_name": "hevc", "pix_fmt": "yuv420p10le"}
+                            ]
+                        }
+                    ),
+                    stderr="",
+                )
+            Path(command[-1]).write_bytes(b"preview")
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "input.mp4"
+            source.write_bytes(b"video")
+            with mock.patch("zero2hundred.picker.subprocess.run", side_effect=fake_run):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    result = prepare_browser_video(source, toolchain, root)
+
+            self.assertEqual(result, root / "browser-preview.mp4")
+            self.assertEqual(result.read_bytes(), b"preview")
+
+        command = commands[1]
+        self.assertEqual(command[0], "ffmpeg")
+        self.assertIn("libx264", command)
+        self.assertIn("yuv420p", command)
+        self.assertIn("-fps_mode", command)
+        self.assertIn("passthrough", command)
+        self.assertIn("-enc_time_base", command)
+        self.assertIn("demux", command)
+        self.assertIn("-g", command)
+        self.assertIn("12", command)
+        self.assertIn("+faststart", command)
+
+    def test_reports_preview_transcode_failure(self) -> None:
+        toolchain = Toolchain(ffmpeg="ffmpeg", ffprobe="ffprobe")
+        probe = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=json.dumps(
+                {"streams": [{"codec_name": "hevc", "pix_fmt": "yuv420p10le"}]}
+            ),
+            stderr="",
+        )
+        failure = subprocess.CompletedProcess([], 1, stdout="", stderr="encode failed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "input.mp4"
+            source.write_bytes(b"video")
+            with mock.patch(
+                "zero2hundred.picker.subprocess.run", side_effect=[probe, failure]
+            ):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    with self.assertRaisesRegex(
+                        MediaError,
+                        "could not create a browser-compatible preview: encode failed",
+                    ):
+                        prepare_browser_video(source, toolchain, Path(tmp))
+
+
 class RenderPickerHtmlTests(unittest.TestCase):
     def test_renders_video_times_marks_and_no_external_urls(self) -> None:
         text = render_picker_html("sample_video.mp4")
@@ -95,6 +192,10 @@ class RenderPickerHtmlTests(unittest.TestCase):
         self.assertIn("Mark launch", text)
         self.assertIn("Mark 100 km/h", text)
         self.assertIn("Finish", text)
+        self.assertIn("requestVideoFrameCallback", text)
+        self.assertIn("setTimeout(finish, 50)", text)
+        self.assertIn("seekInFlight", text)
+        self.assertIn("requestedIndex", text)
         self.assertNotIn("http://", text)
         self.assertNotIn("https://", text)
 
@@ -198,8 +299,10 @@ class ServePickerTests(unittest.TestCase):
     class FakeServer:
         instance = None
 
-        def __init__(self, video_path, workdir, times):
+        def __init__(self, video_path, workdir, times, *, video_name=None):
             type(self).instance = self
+            self.video_path = video_path
+            self.video_name = video_name
             self.url = "http://127.0.0.1:12345/"
             self.result = (0.5, 1.0)
             self.result_event = mock.Mock()
@@ -219,16 +322,26 @@ class ServePickerTests(unittest.TestCase):
         stderr = io.StringIO()
 
         with mock.patch("zero2hundred.picker.extract_thumbnails", return_value=thumbnails):
-            with mock.patch("zero2hundred.picker._PickerServer", self.FakeServer):
-                with mock.patch("zero2hundred.picker.webbrowser.open") as open_browser:
-                    with contextlib.redirect_stderr(stderr):
-                        result = serve_picker(Path("input.mp4"), toolchain, times, Path("work"))
+            with mock.patch(
+                "zero2hundred.picker.prepare_browser_video",
+                return_value=Path("browser-preview.mp4"),
+            ):
+                with mock.patch("zero2hundred.picker._PickerServer", self.FakeServer):
+                    with mock.patch("zero2hundred.picker.webbrowser.open") as open_browser:
+                        with contextlib.redirect_stderr(stderr):
+                            result = serve_picker(
+                                Path("input.mp4"), toolchain, times, Path("work")
+                            )
 
         self.assertEqual(result, (0.5, 1.0))
         self.assertIn("expected 5 thumbnails", stderr.getvalue())
         self.assertIn("produced 3", stderr.getvalue())
         self.assertTrue(self.FakeServer.instance.started)
         self.assertTrue(self.FakeServer.instance.stopped)
+        self.assertEqual(
+            self.FakeServer.instance.video_path, Path("browser-preview.mp4")
+        )
+        self.assertEqual(self.FakeServer.instance.video_name, "input.mp4")
         open_browser.assert_called_once_with("http://127.0.0.1:12345/")
 
     def test_stops_server_before_reraising_keyboard_interrupt(self) -> None:
@@ -237,20 +350,26 @@ class ServePickerTests(unittest.TestCase):
         with mock.patch(
             "zero2hundred.picker.extract_thumbnails", return_value=[Path("1.jpg")]
         ):
-            with mock.patch("zero2hundred.picker._PickerServer", self.FakeServer):
-                with mock.patch("zero2hundred.picker.webbrowser.open"):
-                    self.FakeServer.instance = None
-                    with self.assertRaises(KeyboardInterrupt):
-                        original_init = self.FakeServer.__init__
+            with mock.patch(
+                "zero2hundred.picker.prepare_browser_video",
+                return_value=Path("input.mp4"),
+            ):
+                with mock.patch("zero2hundred.picker._PickerServer", self.FakeServer):
+                    with mock.patch("zero2hundred.picker.webbrowser.open"):
+                        self.FakeServer.instance = None
+                        with self.assertRaises(KeyboardInterrupt):
+                            original_init = self.FakeServer.__init__
 
-                        def init_with_interrupt(server, *args, **kwargs):
-                            original_init(server, *args, **kwargs)
-                            server.result_event.wait.side_effect = KeyboardInterrupt
+                            def init_with_interrupt(server, *args, **kwargs):
+                                original_init(server, *args, **kwargs)
+                                server.result_event.wait.side_effect = KeyboardInterrupt
 
-                        with mock.patch.object(self.FakeServer, "__init__", init_with_interrupt):
-                            serve_picker(
-                                Path("input.mp4"), toolchain, [0.0], Path("work")
-                            )
+                            with mock.patch.object(
+                                self.FakeServer, "__init__", init_with_interrupt
+                            ):
+                                serve_picker(
+                                    Path("input.mp4"), toolchain, [0.0], Path("work")
+                                )
 
         self.assertTrue(self.FakeServer.instance.stopped)
 
