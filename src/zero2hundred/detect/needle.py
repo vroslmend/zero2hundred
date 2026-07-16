@@ -1,3 +1,10 @@
+"""Experimental semi-automatic tracking of the 100 km/h needle crossing.
+
+The tracking constants below were tuned against a small private set of
+labeled runs and have not been validated more widely. Suggestions from
+find_hundred pre-fill the picker for the user to confirm; they are never
+rendered directly.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -17,6 +24,7 @@ from zero2hundred.media import MediaInfo
 
 Point = tuple[float, float]
 MAX_HEIGHT = 960
+MINIMUM_FEATURE_MATCHES = 8
 MINIMUM_HALF_SIZE = 60
 REFERENCE_RADIUS_MULTIPLIER = 2.0
 SEARCH_MARGIN_FRACTION = 0.14
@@ -179,7 +187,7 @@ class _GaugeTracker:
             reference[y0:y1, x0:x1],
             None,
         )
-        if descriptors is None or len(keypoints) < 3:
+        if descriptors is None or len(keypoints) < MINIMUM_FEATURE_MATCHES:
             raise MediaError("could not find enough gauge detail in the calibration frame")
         self._descriptors = descriptors
         self._source_points = np.float32(
@@ -207,7 +215,7 @@ class _GaugeTracker:
             ):
                 if len(pair) == 2 and pair[0].distance < 0.75 * pair[1].distance:
                     matches.append(pair[0])
-            if len(matches) >= 8:
+            if len(matches) >= MINIMUM_FEATURE_MATCHES:
                 source = np.float32(
                     [self._source_points[match.queryIdx] for match in matches]
                 )

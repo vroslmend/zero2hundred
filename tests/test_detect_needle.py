@@ -8,9 +8,11 @@ from zero2hundred.detect.needle import (
     Calibration,
     _crossing_time,
     _gated_crossing_time,
+    _GaugeTracker,
     _trace_speed_path,
     angle_to_speed,
 )
+from zero2hundred.errors import MediaError
 
 
 class CalibrationTests(unittest.TestCase):
@@ -118,6 +120,21 @@ class CrossingTests(unittest.TestCase):
         )
 
         self.assertAlmostEqual(crossing, 3.5)
+
+
+class GaugeTrackerTests(unittest.TestCase):
+    @unittest.skipUnless(available(), "OpenCV and NumPy are not installed")
+    def test_rejects_a_featureless_calibration_frame(self) -> None:
+        calibration = Calibration(
+            pivot=(0.5, 0.5),
+            zero=(0.4, 0.6),
+            hundred=(0.6, 0.4),
+            frame=0.0,
+        )
+        flat = np.zeros((240, 320), dtype=np.uint8)
+
+        with self.assertRaisesRegex(MediaError, "gauge detail"):
+            _GaugeTracker(flat, calibration)
 
 
 class NeedlePathTests(unittest.TestCase):
