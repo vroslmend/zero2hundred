@@ -5,16 +5,20 @@ from bisect import bisect_left
 from collections.abc import Callable, Sequence
 import csv
 from dataclasses import dataclass, replace
+import json
 import math
 from pathlib import Path
 
+from zero2hundred.detect.needle import Calibration
 from zero2hundred.errors import Zero2HundredError
 from zero2hundred.frames import frame_times
 from zero2hundred.media import MediaInfo, find_toolchain, probe_video
 
 
 Suggestion = tuple[float, float]
-Detector = Callable[[Path, MediaInfo, list[float]], Suggestion]
+# The needle detector takes extra arguments (calibration, search start), so
+# the alias only pins down the common return type, not the full call shape.
+Detector = Callable[..., Suggestion]
 DETECTORS: dict[str, Detector] = {}
 REQUIRED_COLUMNS = ("file", "launch", "hundred", "notes")
 
@@ -60,6 +64,36 @@ def load_ground_truth(path: Path) -> list[GroundTruth]:
                 )
             )
     return rows
+
+
+def load_calibrations(path: Path) -> dict[str, Calibration]:
+    """Load per-video gauge calibrations for the needle detector.
+
+    The JSON file maps video file names to either null (the video is not
+    supported and should be skipped) or an object with pivot/zero/hundred
+    normalized points and a calibration frame PTS.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"could not read calibrations from {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"calibrations must be a JSON object: {path}")
+
+    calibrations: dict[str, Calibration] = {}
+    for file, entry in data.items():
+        if entry is None:
+            continue
+        try:
+            calibrations[file] = Calibration(
+                pivot=tuple(entry["pivot"]),
+                zero=tuple(entry["zero"]),
+                hundred=tuple(entry["hundred"]),
+                frame=float(entry["frame"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"invalid calibration for {file}: {exc}") from exc
+    return calibrations
 
 
 def score_suggestion(
@@ -137,22 +171,38 @@ def run_evaluation(
     csv_path: Path,
     detector_name: str,
     detector: Detector,
-) -> list[EvaluationResult]:
-    """Run a registered detector against every labeled row."""
+    *,
+    calibrations: dict[str, Calibration] | None = None,
+) -> tuple[list[EvaluationResult], list[str]]:
+    """Run a registered detector against every labeled row.
+
+    Returns the scored results along with the file names of rows skipped
+    because the needle detector had no calibration for them. The skipped
+    list is always empty for the launch detector.
+    """
     if detector_name not in ("launch", "needle"):
         raise ValueError(f"unknown detector: {detector_name}")
     truth_field = "launch" if detector_name == "launch" else "hundred"
     toolchain = find_toolchain()
     results: list[EvaluationResult] = []
+    skipped: list[str] = []
     for row in load_ground_truth(csv_path):
         truth = getattr(row, truth_field)
         if truth is None:
             continue
+
+        calibration = None
+        if detector_name == "needle":
+            calibration = (calibrations or {}).get(row.file)
+            if calibration is None:
+                skipped.append(row.file)
+                continue
+
         video_path = csv_path.parent / row.file
         media = probe_video(video_path, toolchain)
         times = frame_times(video_path, toolchain)
-        suggestion = detector(video_path, media, times)
         if detector_name == "launch":
+            suggestion = detector(video_path, media, times)
             result = score_suggestion(
                 row.file,
                 truth,
@@ -160,6 +210,9 @@ def run_evaluation(
                 tolerance_s=0.3,
             )
         else:
+            suggestion = detector(
+                video_path, media, times, calibration, row.launch or 0.0
+            )
             result = score_frame_suggestion(
                 row.file,
                 truth,
@@ -168,7 +221,7 @@ def run_evaluation(
                 tolerance_frames=2,
             )
         results.append(result)
-    return results
+    return results, skipped
 
 
 def render_report(results: Sequence[EvaluationResult], detector_name: str) -> str:
@@ -197,6 +250,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("launch", "needle"),
         help="detector to evaluate",
     )
+    parser.add_argument(
+        "--calibrations",
+        type=Path,
+        help="calibration JSON for the needle detector",
+    )
     return parser
 
 
@@ -206,11 +264,30 @@ def main(argv: list[str] | None = None) -> int:
     if detector is None:
         print(f"Detector not implemented yet: {args.detector}")
         return 0
+
+    calibrations = None
+    if args.detector == "needle":
+        calibrations_path = (
+            args.calibrations or args.ground_truth.parent / "calibrations.json"
+        )
+        try:
+            calibrations = load_calibrations(calibrations_path)
+        except ValueError as exc:
+            print(f"Calibrations could not load: {exc}")
+            return 0
+
     try:
-        results = run_evaluation(args.ground_truth, args.detector, detector)
+        results, skipped = run_evaluation(
+            args.ground_truth,
+            args.detector,
+            detector,
+            calibrations=calibrations,
+        )
     except (Zero2HundredError, OSError, ValueError) as exc:
         print(f"Evaluation could not run: {exc}")
         return 0
+    for file in skipped:
+        print(f"Skipped (no calibration): {file}")
     print(render_report(results, args.detector))
     return 0
 
@@ -241,8 +318,10 @@ def _nearest_index(times: Sequence[float], value: float) -> int:
 
 def _register_builtin_detectors() -> None:
     from zero2hundred.detect.launch import suggest_launch
+    from zero2hundred.detect.needle import find_hundred
 
     register_detector("launch", suggest_launch)
+    register_detector("needle", find_hundred)
 
 
 _register_builtin_detectors()
