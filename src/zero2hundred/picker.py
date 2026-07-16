@@ -541,7 +541,7 @@ def render_picker_html(video_name: str) -> str:
 <main id="picker">
   <section class="viewer" aria-label="Video and frame controls">
     <div class="stage">
-      <video id="video" src="/video" controls preload="metadata"></video>
+      <video id="video" src="/video" preload="metadata" playsinline aria-label="Video preview"></video>
       <button id="viewMode" type="button" aria-pressed="false">Gauge view</button>
     </div>
     <div class="transport">

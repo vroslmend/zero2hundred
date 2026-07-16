@@ -229,7 +229,8 @@ class RenderPickerHtmlTests(unittest.TestCase):
         text = render_picker_html("sample_video.mp4")
 
         self.assertIn("sample_video.mp4", text)
-        self.assertIn('<video id="video" src="/video" controls', text)
+        self.assertIn('<video id="video" src="/video" preload="metadata" playsinline', text)
+        self.assertNotIn('<video id="video" src="/video" controls', text)
         self.assertIn('fetch("/times")', text)
         self.assertIn("Mark launch", text)
         self.assertIn("Mark 100 km/h", text)
