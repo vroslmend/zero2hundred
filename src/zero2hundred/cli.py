@@ -5,14 +5,17 @@ from dataclasses import replace
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
+import webbrowser
 
 from zero2hundred import __version__
 from zero2hundred.config import POSITIONS, load_settings
 from zero2hundred.errors import Zero2HundredError
 from zero2hundred.events import EventWindow
 from zero2hundred.frames import frame_after, frame_times, snap_to_frame
-from zero2hundred.media import find_toolchain, probe_video
+from zero2hundred.media import Toolchain, find_toolchain, probe_video
 from zero2hundred.paths import available_output_path, default_output_path, parse_dropped_path
+from zero2hundred.picker import build_picker
 from zero2hundred.render import RenderJob
 from zero2hundred.timecode import format_timecode, parse_timecode
 
@@ -31,6 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--font", help="timer font family")
     parser.add_argument("--font-file", help="path to a timer font file")
     parser.add_argument("--trim-intro", action="store_true", help="start output at launch")
+    parser.add_argument(
+        "--pick",
+        action="store_true",
+        help="open a frame picker in the browser to find exact times",
+    )
     parser.add_argument("--overwrite", action="store_true", help="replace existing output")
     parser.add_argument("--config", type=Path, help="TOML configuration file")
     parser.add_argument("--dry-run", action="store_true", help="print FFmpeg command")
@@ -52,17 +60,29 @@ def main(argv: list[str] | None = None) -> int:
             f"{format_timecode(media.duration)}"
         )
 
+        print("Reading frame timestamps...")
+        times: list[float] | None
+        try:
+            times = frame_times(input_path, toolchain)
+        except Zero2HundredError as exc:
+            print(f"Warning: could not read frame timestamps: {exc}", file=sys.stderr)
+            times = None
+
+        if args.pick:
+            if times is None:
+                print(
+                    "Warning: frame picker unavailable without frame timestamps.",
+                    file=sys.stderr,
+                )
+            else:
+                _open_picker(input_path, toolchain, times)
+
         launch = _time_value(args.start, "Launch timestamp")
         reached_100 = _time_value(args.end, "100 km/h timestamp")
         events = EventWindow(launch=launch, reached_100=reached_100).validate(media.duration)
 
         clip_end: float | None = None
-        print("Reading frame timestamps...")
-        try:
-            times = frame_times(input_path, toolchain)
-        except Zero2HundredError as exc:
-            print(f"Warning: could not read frame timestamps: {exc}", file=sys.stderr)
-        else:
+        if times is not None:
             snapped_launch = snap_to_frame(times, events.launch)
             snapped_reached_100 = snap_to_frame(times, events.reached_100)
             if abs(snapped_launch - events.launch) > 0.0005:
@@ -145,6 +165,20 @@ def _time_value(argument: str | None, label: str) -> float:
             print(f"Invalid time: {exc}")
             raw = None
     return parse_timecode(raw)
+
+
+def _open_picker(input_path: Path, toolchain: Toolchain, times: list[float]) -> None:
+    workdir = Path(tempfile.mkdtemp(prefix="zero2hundred_pick_"))
+    try:
+        html_path = build_picker(input_path, toolchain, times, workdir)
+    except Zero2HundredError as exc:
+        print(f"Warning: could not build frame picker: {exc}", file=sys.stderr)
+        return
+    webbrowser.open(html_path.as_uri())
+    print(
+        f"Frame picker opened in your browser ({html_path}). "
+        "Copy the launch and 100 km/h times, then enter them below."
+    )
 
 
 class _ProgressReporter:
