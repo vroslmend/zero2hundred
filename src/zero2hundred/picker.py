@@ -277,6 +277,24 @@ def render_picker_html(video_name: str) -> str:
     font-size: 13px;
     font-weight: 450;
   }}
+  footer.credit {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 20px;
+    border-top: 1px solid var(--etched);
+    background: var(--dash);
+    color: var(--muted);
+    font-size: 11px;
+  }}
+  footer.credit a {{
+    color: var(--soft);
+    text-decoration: none;
+    border-bottom: 1px solid var(--etched);
+    transition: color 120ms ease, border-color 120ms ease;
+  }}
+  footer.credit a:hover {{ color: var(--ivory); border-color: var(--soft); }}
   main {{ min-height: 0; }}
   .stage {{
     position: relative;
@@ -661,6 +679,10 @@ def render_picker_html(video_name: str) -> str:
   </aside>
 </main>
 <div id="filmstrip" aria-label="Video frames"></div>
+<footer class="credit">
+  <span>zero2hundred</span>
+  <span>Made by <a href="https://github.com/vroslmend" target="_blank" rel="noopener">Ammar Hassan</a></span>
+</footer>
 <script>
   "use strict";
   const thumbnailLimit = {DEFAULT_THUMBNAIL_LIMIT};

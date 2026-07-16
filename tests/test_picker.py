@@ -278,8 +278,13 @@ class RenderPickerHtmlTests(unittest.TestCase):
         self.assertIn('window.addEventListener("pagehide"', text)
         self.assertNotIn("Consolas", text)
         self.assertNotIn("text-transform: uppercase", text)
+        # The page must not auto-load external resources or upload data. The
+        # only permitted absolute URL is the developer credit link.
         self.assertNotIn("http://", text)
-        self.assertNotIn("https://", text)
+        self.assertEqual(text.count("https://"), 1)
+        self.assertIn('href="https://github.com/vroslmend"', text)
+        for external_load in ('src="http', "url(http", "@import", 'fetch("http'):
+            self.assertNotIn(external_load, text)
 
     def test_escapes_video_name(self) -> None:
         text = render_picker_html('<video onload="bad">.mp4')

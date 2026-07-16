@@ -22,6 +22,10 @@ classifiers = [
     "Topic :: Multimedia :: Video :: Conversion",
 ]
 
+[project.urls]
+Homepage = "https://github.com/vroslmend/zero2hundred"
+Repository = "https://github.com/vroslmend/zero2hundred"
+
 [project.optional-dependencies]
 detect = [
     "numpy>=1.26,<3",

@@ -27,7 +27,9 @@ def build_parser() -> argparse.ArgumentParser:
             "Timing examples:\n"
             "  zero2hundred run.mp4 --pick\n"
             "  zero2hundred run.mp4 --start 1.395 --end 10.982\n"
-            "  zero2hundred run.mp4 --pick --dry-run"
+            "  zero2hundred run.mp4 --pick --dry-run\n"
+            "\n"
+            "Made by Ammar Hassan - https://github.com/vroslmend"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -94,7 +96,11 @@ def build_parser() -> argparse.ArgumentParser:
     settings.add_argument(
         "--config", type=Path, metavar="PATH", help="TOML settings file"
     )
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}\nMade by Ammar Hassan - https://github.com/vroslmend",
+    )
     return parser
 
 
