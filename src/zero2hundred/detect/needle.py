@@ -130,14 +130,21 @@ def find_hundred(
         if times[frame_index] < search_start_pts:
             continue
         geometry, registration_score = tracker.locate(gray)
+        registration_scores.append(registration_score)
+        if registration_score == 0.0:
+            # An unregistered frame would be measured with stale geometry.
+            # A gap in the series costs less than feeding the temporal path
+            # a needle angle taken from the wrong place.
+            continue
         scores, needle_score = _needle_scores(gray, geometry)
         sample_times.append(times[frame_index])
         score_rows.append(scores)
-        registration_scores.append(registration_score)
         needle_scores.append(needle_score)
 
-    if not score_rows:
+    if not registration_scores:
         raise MediaError(f"no video frames remain after the search start in {path.name}")
+    if not score_rows:
+        raise MediaError(f"could not register the gauge in {path.name}")
     speed_axis = _speed_axis()
     tracked = _moving_median(
         _trace_speed_path(sample_times, score_rows, speed_axis),
@@ -225,6 +232,10 @@ class _GaugeTracker:
                 target = np.float32(
                     [target_points[match.trainIdx] for match in matches]
                 )
+                # A similarity transform was measured against homography on
+                # the labeled runs: it made one moving-dashboard video worse
+                # and helped nothing, so the perspective terms earn their
+                # keep here.
                 matrix, inliers = cv2.findHomography(
                     source,
                     target,
