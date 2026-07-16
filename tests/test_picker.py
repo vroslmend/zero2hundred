@@ -196,6 +196,8 @@ class RenderPickerHtmlTests(unittest.TestCase):
         self.assertIn("setTimeout(finish, 50)", text)
         self.assertIn("seekInFlight", text)
         self.assertIn("requestedIndex", text)
+        self.assertIn('navigator.sendBeacon("/cancel")', text)
+        self.assertIn('window.addEventListener("pagehide"', text)
         self.assertNotIn("http://", text)
         self.assertNotIn("https://", text)
 
@@ -294,6 +296,15 @@ class PickerServerIntegrationTests(unittest.TestCase):
         self.assertFalse(self.server.result_event.is_set())
         self.assertIsNone(self.server.result)
 
+    def test_cancel_unblocks_server_without_a_result(self) -> None:
+        response, payload = self.request("POST", "/cancel", body=b"")
+
+        self.assertEqual(response.status, 204)
+        self.assertEqual(payload, b"")
+        self.assertTrue(self.server.result_event.wait(timeout=1))
+        self.assertTrue(self.server.cancelled)
+        self.assertIsNone(self.server.result)
+
 
 class ServePickerTests(unittest.TestCase):
     class FakeServer:
@@ -305,6 +316,7 @@ class ServePickerTests(unittest.TestCase):
             self.video_name = video_name
             self.url = "http://127.0.0.1:12345/"
             self.result = (0.5, 1.0)
+            self.cancelled = False
             self.result_event = mock.Mock()
             self.started = False
             self.stopped = False
@@ -342,6 +354,7 @@ class ServePickerTests(unittest.TestCase):
             self.FakeServer.instance.video_path, Path("browser-preview.mp4")
         )
         self.assertEqual(self.FakeServer.instance.video_name, "input.mp4")
+        self.FakeServer.instance.result_event.wait.assert_called_once_with(0.1)
         open_browser.assert_called_once_with("http://127.0.0.1:12345/")
 
     def test_stops_server_before_reraising_keyboard_interrupt(self) -> None:
@@ -362,11 +375,43 @@ class ServePickerTests(unittest.TestCase):
 
                             def init_with_interrupt(server, *args, **kwargs):
                                 original_init(server, *args, **kwargs)
-                                server.result_event.wait.side_effect = KeyboardInterrupt
+                                server.result_event.wait.side_effect = [
+                                    False,
+                                    KeyboardInterrupt,
+                                ]
 
                             with mock.patch.object(
                                 self.FakeServer, "__init__", init_with_interrupt
                             ):
+                                serve_picker(
+                                    Path("input.mp4"), toolchain, [0.0], Path("work")
+                                )
+
+        self.assertTrue(self.FakeServer.instance.stopped)
+        self.assertEqual(self.FakeServer.instance.result_event.wait.call_count, 2)
+        self.FakeServer.instance.result_event.wait.assert_called_with(0.1)
+
+    def test_browser_cancel_stops_server_and_cancels_cli_wait(self) -> None:
+        toolchain = Toolchain(ffmpeg="ffmpeg", ffprobe="ffprobe")
+        original_init = self.FakeServer.__init__
+
+        def cancel_on_init(server, *args, **kwargs):
+            original_init(server, *args, **kwargs)
+            server.cancelled = True
+
+        with mock.patch(
+            "zero2hundred.picker.extract_thumbnails", return_value=[Path("1.jpg")]
+        ):
+            with mock.patch(
+                "zero2hundred.picker.prepare_browser_video",
+                return_value=Path("input.mp4"),
+            ):
+                with mock.patch("zero2hundred.picker._PickerServer", self.FakeServer):
+                    with mock.patch.object(
+                        self.FakeServer, "__init__", cancel_on_init
+                    ):
+                        with mock.patch("zero2hundred.picker.webbrowser.open"):
+                            with self.assertRaises(KeyboardInterrupt):
                                 serve_picker(
                                     Path("input.mp4"), toolchain, [0.0], Path("work")
                                 )

@@ -115,6 +115,15 @@ class PickerCliTests(unittest.TestCase):
         self.assertEqual(stderr, "Warning: frame picker unavailable: thumbs failed\n")
         self.assertEqual(time_value.call_count, 2)
 
+    def test_closing_picker_cancels_the_cli_cleanly(self) -> None:
+        result, _, stderr, _, time_value = self.run_main(
+            ["input.mp4", "--pick", "--dry-run"], KeyboardInterrupt()
+        )
+
+        self.assertEqual(result, 130)
+        self.assertEqual(stderr, "\nCancelled.\n")
+        time_value.assert_not_called()
+
     def test_normal_run_separates_export_and_reports_finished_path(self) -> None:
         result, stdout, stderr, _, _ = self.run_main(
             ["input.mp4", "--pick"], (0.5, 1.0)

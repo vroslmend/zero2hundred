@@ -438,6 +438,7 @@ def render_picker_html(video_name: str) -> str:
   let selectedThumbnail = null;
   let launch = null;
   let hundred = null;
+  let finished = false;
 
   function nearestIndex(value) {{
     let low = 0;
@@ -577,10 +578,17 @@ def render_picker_html(video_name: str) -> str:
         body: JSON.stringify({{launch: launch, hundred: hundred}})
       }});
       if (!response.ok) throw new Error("The marks were not accepted.");
+      finished = true;
       document.body.innerHTML = '<div class="done">Done. Back to the terminal.</div>';
     }} catch (error) {{
       statusEl.textContent = "Could not send the marks. Press Finish to try again.";
       updateFinish();
+    }}
+  }});
+
+  window.addEventListener("pagehide", function () {{
+    if (!finished && navigator.sendBeacon) {{
+      navigator.sendBeacon("/cancel");
     }}
   }});
 
@@ -640,6 +648,7 @@ class _PickerServer:
         self.times = list(times)
         self.result_event = threading.Event()
         self.result: tuple[float, float] | None = None
+        self.cancelled = False
         self._thread: threading.Thread | None = None
 
         owner = self
@@ -692,6 +701,15 @@ class _PickerServer:
 
     def _handle_post(self, handler: BaseHTTPRequestHandler) -> None:
         path = unquote(urlsplit(handler.path).path)
+        if path == "/cancel":
+            self.cancelled = True
+            try:
+                handler.send_response(204)
+                handler.send_header("Content-Length", "0")
+                handler.end_headers()
+            finally:
+                self.result_event.set()
+            return
         if path != "/done":
             handler.send_error(404)
             return
@@ -844,7 +862,10 @@ def serve_picker(
     server.start()
     try:
         webbrowser.open(server.url)
-        server.result_event.wait()
+        while not server.result_event.wait(0.1):
+            pass
+        if server.cancelled:
+            raise KeyboardInterrupt
         if server.result is None:
             raise MediaError("frame picker closed without returning marks")
         return server.result
