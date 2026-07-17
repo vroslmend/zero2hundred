@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import html
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -22,18 +23,24 @@ _RANGE_PATTERN = re.compile(r"bytes=(\d*)-(\d*)$")
 _BROWSER_SAFE_CODECS = {"h264", "vp8", "vp9", "av1"}
 _BROWSER_SAFE_PIXEL_FORMATS = {"yuv420p", "yuvj420p"}
 _MANROPE_FONT = Path(__file__).with_name("assets") / "Manrope-Variable.ttf"
-# A forward-leaning "z" monogram with a speed-tail, ivory on a carbon tile.
-# Inline SVG so the tab icon loads without any external request.
-_FAVICON = (
-    "data:image/svg+xml;base64,"
-    "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAz"
-    "MiI+PHJlY3QgeD0iMS41IiB5PSIxLjUiIHdpZHRoPSIyOSIgaGVpZ2h0PSIyOSIgcng9IjgiIGZp"
-    "bGw9IiMwZTEwMTIiIHN0cm9rZT0iIzJiMmYzMyIvPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2"
-    "IDE2KSBza2V3WCgtMTMpIHRyYW5zbGF0ZSgtMTYgLTE2KSI+PHBhdGggZD0iTTkgMTAuNUgyM0w5"
-    "IDIxIiBmaWxsPSJub25lIiBzdHJva2U9IiNmMmYyZWYiIHN0cm9rZS13aWR0aD0iMi44IiBzdHJv"
-    "a2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48cGF0aCBkPSJNOSAx"
-    "OS43IDkgMjIuNyAyNiAyMS4zNSAyNiAyMS4wNVoiIGZpbGw9IiNmMmYyZWYiLz48L2c+PC9zdmc+"
+# A forward-leaning "z" monogram with a speed-tail, ivory on a carbon tile. The
+# same mark is drawn inline in the header and base64-encoded as the tab favicon,
+# so both load without any external request.
+_MARK_INNER = (
+    '<rect x="1.5" y="1.5" width="29" height="29" rx="8" fill="#0e1012" stroke="#2b2f33"/>'
+    '<g transform="translate(16 16) skewX(-13) translate(-16 -16)">'
+    '<path d="M9 10.5H23L9 21" fill="none" stroke="#f2f2ef" stroke-width="2.8"'
+    ' stroke-linecap="round" stroke-linejoin="round"/>'
+    '<path d="M9 19.7 9 22.7 26 21.35 26 21.05Z" fill="#f2f2ef"/>'
+    "</g>"
 )
+# The inline header copy omits the SVG xmlns (the HTML parser supplies it) so the
+# page holds no literal external URL; the standalone favicon needs the xmlns, but
+# base64 encoding keeps it out of the page source.
+_LOGO_SVG = f'<svg viewBox="0 0 32 32" class="brand-mark" aria-hidden="true">{_MARK_INNER}</svg>'
+_FAVICON = "data:image/svg+xml;base64," + base64.b64encode(
+    f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">{_MARK_INNER}</svg>'.encode()
+).decode("ascii")
 
 
 def thumbnail_indices(count: int, limit: int = DEFAULT_THUMBNAIL_LIMIT) -> list[int]:
@@ -246,7 +253,7 @@ def render_picker_html(video_name: str) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="{_FAVICON}">
-<title>Frame picker | {safe_name}</title>
+<title>{safe_name} · zero2hundred</title>
 <style>
   @font-face {{
     font-family: "Manrope";
@@ -282,7 +289,7 @@ def render_picker_html(video_name: str) -> str:
   button, video {{ -webkit-tap-highlight-color: transparent; }}
   header {{
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     gap: 18px;
     padding: 14px 20px;
@@ -290,13 +297,25 @@ def render_picker_html(video_name: str) -> str:
     background: var(--dash);
   }}
   h1 {{
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
     margin: 0;
-    overflow: hidden;
     font-size: 15px;
     font-weight: 600;
+  }}
+  .brand-mark {{ width: 22px; height: 22px; flex: 0 0 auto; }}
+  .brand-name {{ color: var(--ivory); letter-spacing: -.01em; white-space: nowrap; }}
+  .brand-file {{
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-weight: 450;
     text-overflow: ellipsis;
     white-space: nowrap;
   }}
+  .brand-file::before {{ content: "·"; margin: 0 8px 0 2px; color: var(--etched); }}
   header p {{
     margin: 0;
     flex: 0 0 auto;
@@ -307,7 +326,7 @@ def render_picker_html(video_name: str) -> str:
   footer.credit {{
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: center;
     gap: 12px;
     padding: 6px 20px;
     border-top: 1px solid var(--etched);
@@ -644,7 +663,7 @@ def render_picker_html(video_name: str) -> str:
 </head>
 <body>
 <header>
-  <h1>{safe_name}</h1>
+  <h1>{_LOGO_SVG}<span class="brand-name">zero2hundred</span><span class="brand-file">{safe_name}</span></h1>
   <p>Frame picker</p>
 </header>
 <main id="picker">
@@ -713,7 +732,6 @@ def render_picker_html(video_name: str) -> str:
 </main>
 <div id="filmstrip" aria-label="Video frames"></div>
 <footer class="credit">
-  <span>zero2hundred</span>
   <span>Made by <a href="https://github.com/vroslmend" target="_blank" rel="noopener">Ammar Hassan</a></span>
 </footer>
 <script>

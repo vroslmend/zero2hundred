@@ -331,6 +331,17 @@ class RenderPickerHtmlTests(unittest.TestCase):
         self.assertNotIn("times[requestedIndex] + 0.002", text)
         self.assertIn("Math.min(0.002, gap * 0.4)", text)
 
+    def test_header_and_title_carry_the_brand(self) -> None:
+        text = render_picker_html("run.mp4")
+
+        # Tab title leads with the file, then the product name (matches the favicon).
+        self.assertIn("<title>run.mp4 · zero2hundred</title>", text)
+        # Header shows the z lockup: mark + wordmark + file, with the screen label kept.
+        self.assertIn('class="brand-mark"', text)
+        self.assertIn('class="brand-name">zero2hundred</span>', text)
+        self.assertIn('class="brand-file">run.mp4</span>', text)
+        self.assertIn("<p>Frame picker</p>", text)
+
     def test_uses_an_inline_svg_favicon(self) -> None:
         text = render_picker_html("sample_video.mp4")
 
