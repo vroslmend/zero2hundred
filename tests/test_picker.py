@@ -286,6 +286,14 @@ class RenderPickerHtmlTests(unittest.TestCase):
         for external_load in ('src="http', "url(http", "@import", 'fetch("http'):
             self.assertNotIn(external_load, text)
 
+    def test_seek_nudge_scales_to_the_local_frame_gap(self) -> None:
+        text = render_picker_html("sample_video.mp4")
+
+        # A fixed 2 ms nudge overshoots frames on high-fps footage (>250 fps),
+        # so the seek offset is capped to a fraction of the gap to the next frame.
+        self.assertNotIn("times[requestedIndex] + 0.002", text)
+        self.assertIn("Math.min(0.002, gap * 0.4)", text)
+
     def test_escapes_video_name(self) -> None:
         text = render_picker_html('<video onload="bad">.mp4')
 

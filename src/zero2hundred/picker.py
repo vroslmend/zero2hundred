@@ -789,7 +789,12 @@ def render_picker_html(video_name: str) -> str:
   function pumpSeek() {{
     if (!times.length || seekInFlight || waitingForPaint) return;
     seekInFlight = true;
-    video.currentTime = times[requestedIndex] + 0.002;
+    // Nudge past the frame boundary so the browser lands inside the target
+    // frame, but keep the offset under the gap to the next frame so high-fps
+    // footage does not seek into the following frame.
+    const i = requestedIndex;
+    const gap = i + 1 < times.length ? times[i + 1] - times[i] : 0.04;
+    video.currentTime = times[i] + Math.min(0.002, gap * 0.4);
   }}
 
   function requestIndex(index) {{
