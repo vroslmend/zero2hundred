@@ -85,6 +85,15 @@ def build_parser() -> argparse.ArgumentParser:
     appearance.add_argument("--font", metavar="NAME", help="timer font family")
     appearance.add_argument("--font-file", metavar="PATH", help="timer font file")
     appearance.add_argument(
+        "--border-width",
+        type=int,
+        metavar="PIXELS",
+        help="timer outline width (thicker reads better on busy footage)",
+    )
+    appearance.add_argument(
+        "--text-color", metavar="COLOR", help="timer text color (FFmpeg color value)"
+    )
+    appearance.add_argument(
         "--overlay-style",
         choices=OVERLAY_STYLES,
         metavar="STYLE",
@@ -270,6 +279,10 @@ def _render_settings(args: argparse.Namespace) -> RenderSettings:
         overrides["timer_format"] = args.timer_format
     if args.overlay_scale is not None:
         overrides["overlay_scale"] = args.overlay_scale
+    if args.border_width is not None:
+        overrides["border_width"] = args.border_width
+    if args.text_color is not None:
+        overrides["text_color"] = args.text_color
     if args.fps is not None:
         overrides["frame_rate"] = args.fps
     if args.continue_after_freeze is not None:

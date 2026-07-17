@@ -231,6 +231,25 @@ class PickerCliTests(unittest.TestCase):
         self.assertEqual(passed.timer_format, "stopwatch")
         self.assertEqual(passed.overlay_scale, 1.25)
 
+    def test_legibility_flags_override_configured_settings(self) -> None:
+        _, _, stderr, _, _, render_job_type = self.run_main(
+            [
+                "input.mp4",
+                "--pick",
+                "--border-width",
+                "3",
+                "--text-color",
+                "yellow",
+                "--dry-run",
+            ],
+            (0.5, 1.0),
+        )
+
+        self.assertEqual(stderr, "")
+        passed = render_job_type.call_args.kwargs["settings"]
+        self.assertEqual(passed.border_width, 3)
+        self.assertEqual(passed.text_color, "yellow")
+
     def test_fps_flag_overrides_the_configured_frame_rate(self) -> None:
         _, _, stderr, _, _, render_job_type = self.run_main(
             ["input.mp4", "--pick", "--fps", "60", "--dry-run"],

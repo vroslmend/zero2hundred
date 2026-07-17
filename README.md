@@ -209,6 +209,8 @@ Run `zero2hundred --help` for the authoritative option list.
 | `--position POSITION` | Position the timer at one of six screen locations |
 | `--font NAME` | Use an installed timer font family |
 | `--font-file PATH` | Use a specific timer font file |
+| `--border-width PIXELS` | Thicken the timer outline for readability |
+| `--text-color COLOR` | Set the timer text color |
 | `--overlay-style STYLE` | Choose the overlay style: `type-only`, `quiet-plate`, or `compact` |
 | `--timer-format FORMAT` | Choose the timer format: `seconds` or `stopwatch` |
 | `--overlay-scale FACTOR` | Scale the overlay size between `0.5` and `2.0` |
