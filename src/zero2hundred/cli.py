@@ -237,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\n" + ui.heading("Result"))
         print(ui.row("Launch", format_timecode(events.launch)))
         print(ui.row("100 km/h", format_timecode(events.reached_100)))
-        print(ui.row("Time", ui.accent(f"{events.elapsed:.3f} seconds")))
+        print(ui.row("Time", ui.bold(f"{events.elapsed:.3f} seconds")))
         ending = (
             "Continue after freeze"
             if settings.continue_after_freeze
@@ -248,18 +248,19 @@ def main(argv: list[str] | None = None) -> int:
 
         if picker_marks is not None:
             print("\n" + ui.heading("Re-render without picking again"))
-            print(f"  {ui.accent(_rerun_command(args, input_path, events))}")
+            print(ui.muted("  Copy this and change any flag to re-render without the picker:"))
+            print(f"  {_rerun_command(args, input_path, events)}")
 
         if args.dry_run:
             print("\n" + ui.heading("FFmpeg command"))
-            print(f"  {subprocess.list2cmdline(job.command())}")
+            print(f"  {subprocess.list2cmdline(job.command())}\n")
             return 0
 
         print("\n" + ui.note(f"Exporting {output.name}..."))
         reporter = ProgressReporter(ui)
         job.run(reporter)
         reporter.finish()
-        print(ui.success(f"Done: {output}"))
+        print(ui.success(f"Done: {output}") + "\n")
         return 0
     except KeyboardInterrupt:
         print("\nCancelled.", file=sys.stderr)

@@ -14,21 +14,23 @@ import threading
 from typing import IO
 
 _RESET = "\x1b[0m"
+# Monochrome by design: hierarchy comes from weight, not hue. Colour is reserved
+# for status only (green success, red failure).
 _CODES = {
-    "accent": "\x1b[38;5;214m",  # amber, close to the picker's #f1ad3d
-    "dim": "\x1b[2m",
     "bold": "\x1b[1m",
+    "muted": "\x1b[38;5;245m",  # readable mid-grey for labels and status text
+    "dim": "\x1b[38;5;240m",  # fainter grey, used only for the progress track
     "ok": "\x1b[32m",
     "error": "\x1b[31m",
 }
 _UNICODE = {
-    "bullet": "●", "check": "✓", "arrow": "→", "cross": "✗",
-    "bar_full": "█", "bar_empty": "░", "bar_left": "▕", "bar_right": "▏",
+    "check": "✓", "arrow": "→", "cross": "✗",
+    "bar_full": "━", "bar_empty": "─",  # heavy vs light line: reads even without colour
     "spin": "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏",
 }
 _ASCII = {
-    "bullet": "*", "check": "+", "arrow": ">", "cross": "x",
-    "bar_full": "#", "bar_empty": "-", "bar_left": "[", "bar_right": "]",
+    "check": "+", "arrow": ">", "cross": "x",
+    "bar_full": "=", "bar_empty": "-",
     "spin": "|/-\\",
 }
 
@@ -81,8 +83,8 @@ class UI:
     def _wrap(self, code: str, text: str) -> str:
         return f"{code}{text}{_RESET}" if self.styled else text
 
-    def accent(self, text: str) -> str:
-        return self._wrap(_CODES["accent"], text)
+    def muted(self, text: str) -> str:
+        return self._wrap(_CODES["muted"], text)
 
     def dim(self, text: str) -> str:
         return self._wrap(_CODES["dim"], text)
@@ -97,8 +99,8 @@ class UI:
         return self._wrap(_CODES["error"], text)
 
     def note(self, text: str) -> str:
-        """Transient status text (dimmed on a terminal)."""
-        return self.dim(text)
+        """Transient status text (muted grey on a terminal)."""
+        return self.muted(text)
 
     def success(self, text: str) -> str:
         if not self.styled:
@@ -111,31 +113,28 @@ class UI:
         return f"{self.error(self._glyphs['cross'])} {text}"
 
     def heading(self, text: str) -> str:
-        if not self.styled:
-            return text
-        return f"{self.accent(self._glyphs['bullet'])} {self.bold(text)}"
+        return self.bold(text)
 
     def row(self, label: str, value: str, width: int = 12) -> str:
-        return f"  {self.dim(f'{label:<{width}}')}{value}"
+        return f"  {self.muted(f'{label:<{width}}')}{value}"
 
     def step(self, text: str, *, state: str = "done") -> str:
         glyph = {"done": self.ok(self._glyphs["check"]),
-                 "active": self.accent(self._glyphs["arrow"]),
+                 "active": self.muted(self._glyphs["arrow"]),
                  "fail": self.error(self._glyphs["cross"])}
         if not self.styled:
             return f"  {text}"
         return f"  {glyph[state]} {text}"
 
-    def bar(self, fraction: float, *, width: int = 22) -> str:
+    def bar(self, fraction: float, *, width: int = 24) -> str:
         fraction = max(0.0, min(1.0, fraction))
         filled = round(fraction * width)
         percent = f"{round(fraction * 100):3d}%"
-        left, right = self._glyphs["bar_left"], self._glyphs["bar_right"]
         full = self._glyphs["bar_full"] * filled
         empty = self._glyphs["bar_empty"] * (width - filled)
         if not self.styled:
-            return f"{left}{full}{empty}{right} {percent}"
-        return f"{left}{self.accent(full)}{self.dim(empty)}{right} {self.bold(percent)}"
+            return f"{full}{empty}  {percent}"
+        return f"{self.bold(full)}{self.dim(empty)}  {self.bold(percent)}"
 
     def spinner(self, message: str) -> "Spinner":
         return Spinner(self, message)

@@ -42,7 +42,7 @@ class PlainRenderingTests(unittest.TestCase):
         self.ui = UI(styled=False)
 
     def test_atoms_return_text_unchanged(self) -> None:
-        for render in (self.ui.accent, self.ui.dim, self.ui.bold, self.ui.ok, self.ui.error):
+        for render in (self.ui.muted, self.ui.dim, self.ui.bold, self.ui.ok, self.ui.error):
             self.assertEqual(render("x"), "x")
 
     def test_heading_has_no_marker(self) -> None:
@@ -63,13 +63,16 @@ class StyledRenderingTests(unittest.TestCase):
         self.ui = UI(styled=True)
 
     def test_atoms_wrap_with_escape_codes_and_reset(self) -> None:
-        out = self.ui.accent("x")
+        out = self.ui.muted("x")
         self.assertIn("\x1b[", out)
         self.assertTrue(out.endswith("\x1b[0m"))
         self.assertIn("x", out)
 
-    def test_heading_carries_an_accent_bullet(self) -> None:
-        self.assertIn("●", self.ui.heading("Video"))
+    def test_heading_is_bold_without_a_decorative_marker(self) -> None:
+        out = self.ui.heading("Video")
+        self.assertIn("\x1b[1m", out)
+        self.assertIn("Video", out)
+        self.assertNotIn("●", out)
 
     def test_success_and_fail_carry_glyphs(self) -> None:
         self.assertIn("✓", self.ui.success("Done"))
@@ -78,7 +81,7 @@ class StyledRenderingTests(unittest.TestCase):
     def test_bar_shows_percent_and_stays_within_width(self) -> None:
         bar = self.ui.bar(0.5, width=10)
         self.assertIn("50%", bar)
-        self.assertEqual(bar.count("█") + bar.count("░"), 10)
+        self.assertEqual(bar.count("━") + bar.count("─"), 10)
 
     def test_bar_clamps_out_of_range_fractions(self) -> None:
         self.assertIn("100%", self.ui.bar(1.4, width=8))
