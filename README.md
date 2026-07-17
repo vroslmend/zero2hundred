@@ -207,7 +207,7 @@ Run `zero2hundred --help` for the authoritative option list.
 | `--end-after-freeze` | End on the frozen result |
 | `--continue-after-freeze` | Continue after the freeze, overriding a config file |
 | `--position POSITION` | Position the timer at one of six screen locations |
-| `--font NAME` | Use an installed timer font family |
+| `--font NAME` | Use a bundled Manrope weight or an installed font family |
 | `--font-file PATH` | Use a specific timer font file |
 | `--border-width PIXELS` | Thicken the timer outline for readability |
 | `--text-color COLOR` | Set the timer text color |
@@ -263,7 +263,7 @@ configuration file.
 | `overlay_scale` | `1.0` | `0.5` to `2.0` |
 | `timer_format` | `"seconds"` | `"seconds"` or `"stopwatch"` |
 | `timer_label` | `"0–100 km/h"` | Any nonempty text |
-| `font` | `"Manrope"` | An installed font family |
+| `font` | `"Manrope"` | A bundled Manrope weight or an installed font family |
 | `font_file` | Not set | Path to a font file |
 | `font_size_ratio` | `0.065` | `0.01` to `0.5` |
 | `margin_ratio` | `0.04` | `0.0` to `0.5` |
@@ -278,8 +278,18 @@ The default `type-only` overlay uses clean typography without a panel.
 timer on one line. `seconds` displays a value such as `9.45`, while `stopwatch`
 uses a minutes, seconds, and centiseconds display.
 
-Manrope Medium is bundled with the tool, so the default appearance is
-consistent across computers.
+Manrope is bundled with the tool, so the default appearance is consistent
+across computers. Four weights are included and can be selected by name without
+installing anything: `Manrope Regular`, `Manrope` (Medium, the default),
+`Manrope SemiBold`, and `Manrope Bold`. A heavier weight reads better on busy
+footage:
+
+```powershell
+zero2hundred "D:\Videos\run.mp4" --pick --font "Manrope Bold"
+```
+
+Any other `font` value is treated as an installed font family. Use `font_file`
+(or `--font-file`) to point at a specific font file instead.
 
 ### Encoding settings
 

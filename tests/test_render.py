@@ -64,6 +64,33 @@ class RenderGraphTests(unittest.TestCase):
         )
         self.assertIn("fps=fps=30.000000", graph)
 
+    def test_bundled_manrope_weights_resolve_to_their_font_files(self) -> None:
+        cases = {
+            "Manrope": "Manrope-Medium.ttf",
+            "manrope-regular": "Manrope-Regular.ttf",
+            "Manrope SemiBold": "Manrope-SemiBold.ttf",
+            "manrope-bold": "Manrope-Bold.ttf",
+        }
+        for font, expected_file in cases.items():
+            with self.subTest(font=font):
+                graph = build_filter_graph(
+                    self.media,
+                    self.events,
+                    RenderSettings(font=font),
+                    trim_intro=False,
+                )
+                self.assertIn(expected_file, graph)
+
+    def test_unbundled_font_family_is_passed_through_by_name(self) -> None:
+        graph = build_filter_graph(
+            self.media,
+            self.events,
+            RenderSettings(font="Arial"),
+            trim_intro=False,
+        )
+        self.assertIn("font='Arial'", graph)
+        self.assertNotIn(".ttf", graph)
+
     def test_hms_style_keeps_previous_behavior(self) -> None:
         graph = build_filter_graph(
             self.media,

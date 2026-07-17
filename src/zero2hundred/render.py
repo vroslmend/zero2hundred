@@ -13,7 +13,15 @@ from zero2hundred.media import MediaInfo, Toolchain
 
 
 ProgressCallback = Callable[[float], None]
-_MANROPE_FONT = Path(__file__).with_name("assets") / "Manrope-Medium.ttf"
+_ASSETS = Path(__file__).with_name("assets")
+# Weights bundled with the package, selectable through `font` without a path.
+_BUNDLED_FONTS = {
+    "manrope": "Manrope-Medium.ttf",
+    "manrope-regular": "Manrope-Regular.ttf",
+    "manrope-medium": "Manrope-Medium.ttf",
+    "manrope-semibold": "Manrope-SemiBold.ttf",
+    "manrope-bold": "Manrope-Bold.ttf",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,10 +253,10 @@ def _position(position: str, margin: float) -> tuple[str, str]:
 
 def _font_option(settings: RenderSettings) -> str:
     if settings.font_file:
-        path = settings.font_file
-        return f"fontfile='{_escape_filter_value(path)}'"
-    if settings.font.casefold() == "manrope":
-        return f"fontfile='{_escape_filter_value(str(_MANROPE_FONT))}'"
+        return f"fontfile='{_escape_filter_value(settings.font_file)}'"
+    bundled = _BUNDLED_FONTS.get(settings.font.casefold().replace(" ", "-"))
+    if bundled:
+        return f"fontfile='{_escape_filter_value(str(_ASSETS / bundled))}'"
     return f"font='{_escape_filter_value(settings.font)}'"
 
 
