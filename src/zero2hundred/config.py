@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, fields, replace
+import math
 from pathlib import Path
 import tomllib
 
@@ -40,6 +41,7 @@ class RenderSettings:
     text_color: str = "white"
     border_color: str = "black"
     border_width: int = 1
+    frame_rate: float | None = None
     video_encoder: str = "libx264"
     crf: int = 18
     preset: str = "medium"
@@ -80,6 +82,13 @@ class RenderSettings:
             raise ConfigurationError("border_width cannot be negative")
         if not 0 <= self.crf <= 51:
             raise ConfigurationError("crf must be between 0 and 51")
+        if self.frame_rate is not None:
+            if isinstance(self.frame_rate, bool) or not isinstance(
+                self.frame_rate, (int, float)
+            ):
+                raise ConfigurationError("frame_rate must be a number")
+            if not math.isfinite(self.frame_rate) or self.frame_rate <= 0:
+                raise ConfigurationError("frame_rate must be a positive number")
         return self
 
 

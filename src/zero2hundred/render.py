@@ -143,6 +143,7 @@ def build_filter_graph(
     clip_start = events.launch if trim_intro else 0.0
     timer_start = 0.0 if trim_intro else events.launch
     freeze_at = _resolve_clip_end(media, events, clip_end)
+    output_fps = settings.frame_rate or media.frame_rate
 
     timer_style = settings.timer_style or settings.timer_format
     timer = _timer_text(timer_start, events.elapsed, timer_style)
@@ -165,7 +166,7 @@ def build_filter_graph(
         video_filters = _overlay_filters(settings, font_option, timer)
     timed_video = (
         f"[0:v]trim=start={clip_start:.6f}:end={freeze_at:.6f},"
-        f"setpts=PTS-STARTPTS,fps=fps={media.frame_rate:.6f},"
+        f"setpts=PTS-STARTPTS,fps=fps={output_fps:.6f},"
         f"{','.join(video_filters)},"
         f"tpad=stop_mode=clone:stop_duration={settings.freeze_duration:.6f}"
     )
@@ -185,7 +186,7 @@ def build_filter_graph(
     timed_video += "[timed_video]"
     tail_video = (
         f"[0:v]trim=start={freeze_at:.6f}:end={media.duration:.6f},"
-        f"setpts=PTS-STARTPTS,fps=fps={media.frame_rate:.6f}[tail_video]"
+        f"setpts=PTS-STARTPTS,fps=fps={output_fps:.6f}[tail_video]"
     )
     if not media.has_audio:
         concat = "[timed_video][tail_video]concat=n=2:v=1:a=0[video]"

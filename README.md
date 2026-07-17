@@ -212,6 +212,7 @@ Run `zero2hundred --help` for the authoritative option list.
 | `--overlay-style STYLE` | Choose the overlay style: `type-only`, `quiet-plate`, or `compact` |
 | `--timer-format FORMAT` | Choose the timer format: `seconds` or `stopwatch` |
 | `--overlay-scale FACTOR` | Scale the overlay size between `0.5` and `2.0` |
+| `--fps RATE` | Set the output frame rate, overriding the source rate |
 | `--config PATH` | Load settings from a TOML file |
 | `--overwrite` | Replace an existing output file |
 | `--dry-run` | Show the FFmpeg command without exporting |
@@ -288,6 +289,11 @@ crf = 18
 preset = "medium"
 audio_bitrate = "192k"
 ```
+
+By default the output keeps the source frame rate. Set `frame_rate` (or pass
+`--fps`) to force a specific output rate, such as `frame_rate = 60` for a 60 fps
+export. This is applied when the video is re-encoded; it does not add missing
+detail to lower-rate footage.
 
 ## Troubleshooting
 

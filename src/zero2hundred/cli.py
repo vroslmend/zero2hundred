@@ -108,6 +108,12 @@ def build_parser() -> argparse.ArgumentParser:
         "-o", "--output", type=Path, metavar="PATH", help="output MP4 path"
     )
     output.add_argument(
+        "--fps",
+        type=float,
+        metavar="RATE",
+        help="output frame rate (defaults to the source rate)",
+    )
+    output.add_argument(
         "--overwrite", action="store_true", help="replace an existing output file"
     )
     output.add_argument(
@@ -264,6 +270,8 @@ def _render_settings(args: argparse.Namespace) -> RenderSettings:
         overrides["timer_format"] = args.timer_format
     if args.overlay_scale is not None:
         overrides["overlay_scale"] = args.overlay_scale
+    if args.fps is not None:
+        overrides["frame_rate"] = args.fps
     if args.continue_after_freeze is not None:
         overrides["continue_after_freeze"] = args.continue_after_freeze
     return replace(settings, **overrides).validated()

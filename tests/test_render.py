@@ -45,6 +45,25 @@ class RenderGraphTests(unittest.TestCase):
         self.assertIn("concat=n=2:v=1:a=1[video][audio]", graph)
         self.assertNotIn("apad=", graph)
 
+    def test_frame_rate_override_replaces_the_source_rate(self) -> None:
+        graph = build_filter_graph(
+            self.media,
+            self.events,
+            RenderSettings(frame_rate=60.0),
+            trim_intro=False,
+        )
+        self.assertIn("fps=fps=60.000000", graph)
+        self.assertNotIn("fps=fps=30.000000", graph)
+
+    def test_frame_rate_defaults_to_the_source_rate(self) -> None:
+        graph = build_filter_graph(
+            self.media,
+            self.events,
+            RenderSettings(),
+            trim_intro=False,
+        )
+        self.assertIn("fps=fps=30.000000", graph)
+
     def test_hms_style_keeps_previous_behavior(self) -> None:
         graph = build_filter_graph(
             self.media,

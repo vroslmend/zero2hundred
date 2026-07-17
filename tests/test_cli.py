@@ -231,6 +231,15 @@ class PickerCliTests(unittest.TestCase):
         self.assertEqual(passed.timer_format, "stopwatch")
         self.assertEqual(passed.overlay_scale, 1.25)
 
+    def test_fps_flag_overrides_the_configured_frame_rate(self) -> None:
+        _, _, stderr, _, _, render_job_type = self.run_main(
+            ["input.mp4", "--pick", "--fps", "60", "--dry-run"],
+            (0.5, 1.0),
+        )
+
+        self.assertEqual(stderr, "")
+        self.assertEqual(render_job_type.call_args.kwargs["settings"].frame_rate, 60.0)
+
     def test_continue_after_freeze_overrides_a_configured_short_ending(self) -> None:
         configured = RenderSettings(continue_after_freeze=False)
         result, stdout, stderr, _, _, render_job_type = self.run_main(

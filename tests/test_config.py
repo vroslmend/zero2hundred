@@ -59,6 +59,15 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(ConfigurationError):
             RenderSettings(timer_style="digital").validated()
 
+    def test_frame_rate_defaults_to_none_and_accepts_a_positive_rate(self) -> None:
+        self.assertIsNone(RenderSettings().frame_rate)
+        self.assertEqual(RenderSettings(frame_rate=60.0).validated().frame_rate, 60.0)
+
+    def test_rejects_non_positive_or_non_numeric_frame_rate(self) -> None:
+        for value in (0, -30.0, float("nan"), float("inf"), True):
+            with self.assertRaises(ConfigurationError):
+                RenderSettings(frame_rate=value).validated()  # type: ignore[arg-type]
+
     def test_rejects_bad_overlay_configuration(self) -> None:
         with self.assertRaises(ConfigurationError):
             RenderSettings(overlay_style="neon").validated()
