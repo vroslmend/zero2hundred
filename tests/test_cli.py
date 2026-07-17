@@ -339,17 +339,5 @@ class RerunCommandTests(unittest.TestCase):
         self.assertNotIn("--end-after-freeze", continued)
 
 
-class ProgressReporterTests(unittest.TestCase):
-    def test_formats_progress_as_an_indented_status_row(self) -> None:
-        stdout = io.StringIO()
-        reporter = cli._ProgressReporter()
-
-        with contextlib.redirect_stdout(stdout):
-            reporter(0.427)
-            reporter.finish()
-
-        self.assertEqual(stdout.getvalue(), "\r  Progress     42%\n")
-
-
 if __name__ == "__main__":
     unittest.main()

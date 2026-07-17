@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-import subprocess
-import tempfile
 
 from zero2hundred.config import RenderSettings
 from zero2hundred.errors import MediaError
 from zero2hundred.events import EventWindow
 from zero2hundred.media import MediaInfo, Toolchain
-
-
-ProgressCallback = Callable[[float], None]
+from zero2hundred.progress import ProgressCallback, stream_ffmpeg_progress
 _ASSETS = Path(__file__).with_name("assets")
 # Weights bundled with the package, selectable through `font` without a path.
 _BUNDLED_FONTS = {
@@ -106,36 +101,12 @@ class RenderJob:
         if self.output.resolve() == self.media.path.resolve():
             raise MediaError("output path cannot overwrite the source video")
 
-        with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as stderr:
-            process = subprocess.Popen(
-                self.command(),
-                stdout=subprocess.PIPE,
-                stderr=stderr,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
-            try:
-                assert process.stdout is not None
-                for raw_line in process.stdout:
-                    key, separator, raw_value = raw_line.strip().partition("=")
-                    if separator and key in {"out_time_us", "out_time_ms"}:
-                        try:
-                            current = int(raw_value) / 1_000_000
-                        except ValueError:
-                            continue
-                        if progress:
-                            progress(min(1.0, current / self.output_duration))
-                return_code = process.wait()
-            except KeyboardInterrupt:
-                process.terminate()
-                process.wait()
-                raise
-
-            if return_code:
-                stderr.seek(0)
-                detail = stderr.read().strip()
-                raise MediaError(f"FFmpeg export failed:\n{detail}")
+        stream_ffmpeg_progress(
+            self.command(),
+            self.output_duration,
+            progress,
+            error_prefix="FFmpeg export failed:\n",
+        )
         if progress:
             progress(1.0)
 

@@ -225,7 +225,7 @@ class PrepareBrowserVideoTests(unittest.TestCase):
             source.write_bytes(b"video")
             stdout = io.StringIO()
             with mock.patch("zero2hundred.picker.subprocess.run", return_value=probe):
-                with mock.patch("zero2hundred.picker.subprocess.Popen", FakePopen):
+                with mock.patch("zero2hundred.progress.subprocess.Popen", FakePopen):
                     with contextlib.redirect_stdout(stdout):
                         result = prepare_browser_video(
                             source, toolchain, root, duration=10.0

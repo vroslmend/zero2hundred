@@ -8,13 +8,13 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import tempfile
 import threading
 from urllib.parse import unquote, urlsplit
 import webbrowser
 
 from zero2hundred.errors import MediaError
 from zero2hundred.media import Toolchain
+from zero2hundred.progress import ProgressReporter, stream_ffmpeg_progress
 
 DEFAULT_THUMBNAIL_LIMIT = 1200
 _CHUNK_SIZE = 64 * 1024
@@ -155,7 +155,15 @@ def prepare_browser_video(
         "+faststart",
     ]
     if duration > 0:
-        _transcode_preview(command + ["-progress", "pipe:1", "-nostats", str(preview)], duration)
+        reporter = ProgressReporter()
+        stream_ffmpeg_progress(
+            command + ["-progress", "pipe:1", "-nostats", str(preview)],
+            duration,
+            reporter,
+            error_prefix="could not create a browser-compatible preview: ",
+        )
+        reporter(1.0)
+        reporter.finish()
     else:
         completed = subprocess.run(
             command + [str(preview)],
@@ -171,39 +179,6 @@ def prepare_browser_video(
     if not preview.is_file():
         raise MediaError("could not create a browser-compatible preview")
     return preview
-
-
-def _transcode_preview(command: list[str], duration: float) -> None:
-    """Run the preview transcode, printing percentage progress as it encodes."""
-    last_percent = -1
-    with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as errors:
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=errors,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        assert process.stdout is not None
-        for line in process.stdout:
-            key, separator, value = line.strip().partition("=")
-            if not separator or key not in {"out_time_us", "out_time_ms"}:
-                continue
-            try:
-                current = int(value) / 1_000_000
-            except ValueError:
-                continue
-            percent = min(100, int(current / duration * 100))
-            if percent != last_percent:
-                last_percent = percent
-                print(f"\r  Progress    {percent:3d}%", end="", flush=True)
-        if process.wait():
-            errors.seek(0)
-            detail = errors.read().strip() or "unknown FFmpeg error"
-            raise MediaError(f"could not create a browser-compatible preview: {detail}")
-    if last_percent >= 0:
-        print("\r  Progress    100%")
 
 
 def _browser_video_format(path: Path, toolchain: Toolchain) -> tuple[str, str, int]:

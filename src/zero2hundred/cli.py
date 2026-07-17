@@ -21,6 +21,7 @@ from zero2hundred.frames import frame_after, frame_times, snap_to_frame
 from zero2hundred.media import Toolchain, find_toolchain, probe_video
 from zero2hundred.paths import available_output_path, default_output_path, parse_dropped_path
 from zero2hundred.picker import serve_picker
+from zero2hundred.progress import ProgressReporter
 from zero2hundred.render import RenderJob
 from zero2hundred.timecode import format_timecode, parse_timecode
 
@@ -253,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         print(f"\nExporting {output.name}...")
-        reporter = _ProgressReporter()
+        reporter = ProgressReporter()
         job.run(reporter)
         reporter.finish()
         print(f"Done: {output}")
@@ -371,22 +372,6 @@ def _pick_frames(
     except (Zero2HundredError, OSError) as exc:
         print(f"Warning: frame picker unavailable: {exc}", file=sys.stderr)
         return None
-
-
-class _ProgressReporter:
-    def __init__(self) -> None:
-        self._last_percent = -1
-
-    def __call__(self, progress: float) -> None:
-        percent = int(progress * 100)
-        if percent == self._last_percent:
-            return
-        self._last_percent = percent
-        print(f"\r  Progress    {percent:3d}%", end="", flush=True)
-
-    def finish(self) -> None:
-        if self._last_percent >= 0:
-            print()
 
 
 if __name__ == "__main__":
