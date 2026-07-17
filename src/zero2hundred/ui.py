@@ -172,7 +172,7 @@ class Spinner:
     def _spin(self) -> None:
         index = 0
         while not self._stop.wait(0.08):
-            frame = self._ui.accent(self._frames[index % len(self._frames)])
+            frame = self._ui.muted(self._frames[index % len(self._frames)])
             self._stream.write(f"\r  {frame} {self._message}")
             self._stream.flush()
             index += 1
