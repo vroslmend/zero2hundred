@@ -209,6 +209,9 @@ Run `zero2hundred --help` for the authoritative option list.
 | `--position POSITION` | Position the timer at one of six screen locations |
 | `--font NAME` | Use an installed timer font family |
 | `--font-file PATH` | Use a specific timer font file |
+| `--overlay-style STYLE` | Choose the overlay style: `type-only`, `quiet-plate`, or `compact` |
+| `--timer-format FORMAT` | Choose the timer format: `seconds` or `stopwatch` |
+| `--overlay-scale FACTOR` | Scale the overlay size between `0.5` and `2.0` |
 | `--config PATH` | Load settings from a TOML file |
 | `--overwrite` | Replace an existing output file |
 | `--dry-run` | Show the FFmpeg command without exporting |
