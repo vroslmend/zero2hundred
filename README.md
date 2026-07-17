@@ -134,6 +134,20 @@ Gauge view enlarges the video around the instrument cluster. While it is on,
 drag the video to position the speedometer. Select **Reset view** to restore the
 default position.
 
+### Re-render without picking again
+
+After a pick session, the program prints a ready-to-run command with your launch
+and 100 km/h marks already filled in, alongside the options from that run:
+
+```text
+Re-render without picking again
+  zero2hundred "D:\Videos\run.mp4" --start 1.395 --end 10.982 --overlay-style compact
+```
+
+Copy it, change or add a flag, and run it again to re-render instantly. The
+browser picker does not reopen. For example, change `--overlay-style compact` to
+`quiet-plate`, or add `--font "Manrope Bold"`.
+
 ## What the output contains
 
 By default:

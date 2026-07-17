@@ -243,6 +243,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  Ending      {ending}")
         print(f"  Output      {output}")
 
+        if picker_marks is not None:
+            print("\nRe-render without picking again")
+            print(f"  {_rerun_command(args, input_path, events)}")
+
         if args.dry_run:
             print("\nFFmpeg command")
             print(f"  {subprocess.list2cmdline(job.command())}")
@@ -288,6 +292,51 @@ def _render_settings(args: argparse.Namespace) -> RenderSettings:
     if args.continue_after_freeze is not None:
         overrides["continue_after_freeze"] = args.continue_after_freeze
     return replace(settings, **overrides).validated()
+
+
+def _shell_quote(value: str) -> str:
+    return f'"{value}"' if value == "" or any(char.isspace() for char in value) else value
+
+
+def _rerun_command(
+    args: argparse.Namespace, input_path: Path, events: EventWindow
+) -> str:
+    """Build a copy-paste command that reproduces this run from the picked marks."""
+    tokens = ["zero2hundred", f'"{input_path}"']
+    tokens += ["--start", f"{events.launch:.3f}", "--end", f"{events.reached_100:.3f}"]
+    if args.trim_intro:
+        tokens.append("--trim-intro")
+    if args.continue_after_freeze is True:
+        tokens.append("--continue-after-freeze")
+    elif args.continue_after_freeze is False:
+        tokens.append("--end-after-freeze")
+    if args.freeze is not None:
+        tokens += ["--freeze", f"{args.freeze:g}"]
+    if args.position is not None:
+        tokens += ["--position", args.position]
+    if args.font is not None:
+        tokens += ["--font", _shell_quote(args.font)]
+    if args.font_file is not None:
+        tokens += ["--font-file", _shell_quote(args.font_file)]
+    if args.border_width is not None:
+        tokens += ["--border-width", str(args.border_width)]
+    if args.text_color is not None:
+        tokens += ["--text-color", _shell_quote(args.text_color)]
+    if args.overlay_style is not None:
+        tokens += ["--overlay-style", args.overlay_style]
+    if args.timer_format is not None:
+        tokens += ["--timer-format", args.timer_format]
+    if args.overlay_scale is not None:
+        tokens += ["--overlay-scale", f"{args.overlay_scale:g}"]
+    if args.fps is not None:
+        tokens += ["--fps", f"{args.fps:g}"]
+    if args.config is not None:
+        tokens += ["--config", _shell_quote(str(args.config))]
+    if args.output is not None:
+        tokens += ["--output", _shell_quote(str(args.output))]
+    if args.overwrite:
+        tokens.append("--overwrite")
+    return " ".join(tokens)
 
 
 def _input_path(argument: str | None) -> Path:

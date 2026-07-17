@@ -8,6 +8,7 @@ from unittest import mock
 from zero2hundred import cli
 from zero2hundred.config import RenderSettings
 from zero2hundred.errors import MediaError
+from zero2hundred.events import EventWindow
 from zero2hundred.media import Toolchain
 
 
@@ -205,6 +206,26 @@ class PickerCliTests(unittest.TestCase):
             render_job_type.call_args.kwargs["settings"].continue_after_freeze
         )
 
+    def test_pick_run_prints_a_reusable_rerun_command(self) -> None:
+        result, stdout, stderr, _, _, _ = self.run_main(
+            ["input.mp4", "--pick", "--overlay-style", "compact", "--dry-run"],
+            (0.5, 1.0),
+        )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(stderr, "")
+        self.assertIn("Re-render without picking again", stdout)
+        self.assertIn("--start 0.500 --end 1.000 --overlay-style compact", stdout)
+        self.assertNotIn("--pick", stdout.split("Re-render without picking again")[1])
+
+    def test_typed_time_run_omits_the_rerun_command(self) -> None:
+        _, stdout, _, _, _, _ = self.run_main(
+            ["input.mp4", "--start", "0.5", "--end", "1.0", "--dry-run"],
+            (0.0, 0.0),
+        )
+
+        self.assertNotIn("Re-render without picking again", stdout)
+
     def test_appearance_flags_override_configured_settings(self) -> None:
         configured = RenderSettings(
             overlay_style="type-only", timer_format="seconds", overlay_scale=1.0
@@ -278,6 +299,47 @@ class PickerCliTests(unittest.TestCase):
         self.assertTrue(
             render_job_type.call_args.kwargs["settings"].continue_after_freeze
         )
+
+
+class RerunCommandTests(unittest.TestCase):
+    def _command(self, arguments: list[str], events: EventWindow) -> str:
+        args = cli.build_parser().parse_args(arguments)
+        return cli._rerun_command(args, Path("run.mp4"), events)
+
+    def test_marks_only_pins_start_and_end(self) -> None:
+        command = self._command(["run.mp4", "--pick"], EventWindow(1.395, 10.982))
+        self.assertEqual(command, 'zero2hundred "run.mp4" --start 1.395 --end 10.982')
+
+    def test_drops_pick_and_echoes_output_flags(self) -> None:
+        command = self._command(
+            ["run.mp4", "--pick", "--overlay-style", "compact", "--freeze", "3"],
+            EventWindow(0.5, 1.0),
+        )
+        self.assertNotIn("--pick", command)
+        self.assertIn("--start 0.500 --end 1.000", command)
+        self.assertIn("--overlay-style compact", command)
+        self.assertIn("--freeze 3", command)
+
+    def test_quotes_values_that_contain_spaces(self) -> None:
+        command = self._command(
+            ["run.mp4", "--pick", "--font", "Manrope Bold"], EventWindow(0.5, 1.0)
+        )
+        self.assertIn('--font "Manrope Bold"', command)
+
+    def test_serializes_ending_choice_and_boolean_flags(self) -> None:
+        ended = self._command(
+            ["run.mp4", "--pick", "--trim-intro", "--end-after-freeze", "--overwrite"],
+            EventWindow(0.5, 1.0),
+        )
+        self.assertIn("--trim-intro", ended)
+        self.assertIn("--end-after-freeze", ended)
+        self.assertIn("--overwrite", ended)
+
+        continued = self._command(
+            ["run.mp4", "--pick", "--continue-after-freeze"], EventWindow(0.5, 1.0)
+        )
+        self.assertIn("--continue-after-freeze", continued)
+        self.assertNotIn("--end-after-freeze", continued)
 
 
 class ProgressReporterTests(unittest.TestCase):
