@@ -90,9 +90,6 @@ class PickerCliTests(unittest.TestCase):
         self.assertIn("  Frame rate  30.000 fps", stdout)
         self.assertIn("  Frames      4", stdout)
         self.assertIn("\nPreparing frame picker...", stdout)
-        self.assertIn(
-            "Waiting for launch and 100 km/h marks in the browser...", stdout
-        )
         self.assertIn("Marks received.", stdout)
         self.assertIn("\nResult\n", stdout)
         self.assertIn("  Launch      00:00.500", stdout)

@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 from urllib.parse import unquote, urlsplit
 import webbrowser
@@ -102,9 +103,13 @@ def _run_ffmpeg(
 
 
 def prepare_browser_video(
-    path: Path, toolchain: Toolchain, workdir: Path
+    path: Path, toolchain: Toolchain, workdir: Path, *, duration: float = 0.0
 ) -> Path:
-    """Return `path` when browsers can decode it, otherwise create an H.264 preview."""
+    """Return `path` when browsers can decode it, otherwise create an H.264 preview.
+
+    When `duration` is positive the transcode reports percentage progress; with
+    an unknown duration it runs silently.
+    """
     codec, pixel_format, rotation = _browser_video_format(path, toolchain)
     if (
         path.suffix.lower() in {".mp4", ".m4v"}
@@ -114,7 +119,7 @@ def prepare_browser_video(
     ):
         return path
 
-    print("Creating a browser-compatible full-resolution preview...")
+    print("  Creating a browser-compatible full-resolution preview...")
     preview = workdir / "browser-preview.mp4"
     # Passthrough pacing keeps every VFR frame. The demuxer time base keeps each encoded
     # frame on its original PTS instead of rounding timestamps to the nominal frame rate.
@@ -148,22 +153,57 @@ def prepare_browser_video(
         "0",
         "-movflags",
         "+faststart",
-        str(preview),
     ]
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
-    if completed.returncode:
-        detail = completed.stderr.strip() or "unknown FFmpeg error"
-        raise MediaError(f"could not create a browser-compatible preview: {detail}")
+    if duration > 0:
+        _transcode_preview(command + ["-progress", "pipe:1", "-nostats", str(preview)], duration)
+    else:
+        completed = subprocess.run(
+            command + [str(preview)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        if completed.returncode:
+            detail = completed.stderr.strip() or "unknown FFmpeg error"
+            raise MediaError(f"could not create a browser-compatible preview: {detail}")
     if not preview.is_file():
         raise MediaError("could not create a browser-compatible preview")
     return preview
+
+
+def _transcode_preview(command: list[str], duration: float) -> None:
+    """Run the preview transcode, printing percentage progress as it encodes."""
+    last_percent = -1
+    with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as errors:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=errors,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        assert process.stdout is not None
+        for line in process.stdout:
+            key, separator, value = line.strip().partition("=")
+            if not separator or key not in {"out_time_us", "out_time_ms"}:
+                continue
+            try:
+                current = int(value) / 1_000_000
+            except ValueError:
+                continue
+            percent = min(100, int(current / duration * 100))
+            if percent != last_percent:
+                last_percent = percent
+                print(f"\r  Progress    {percent:3d}%", end="", flush=True)
+        if process.wait():
+            errors.seek(0)
+            detail = errors.read().strip() or "unknown FFmpeg error"
+            raise MediaError(f"could not create a browser-compatible preview: {detail}")
+    if last_percent >= 0:
+        print("\r  Progress    100%")
 
 
 def _browser_video_format(path: Path, toolchain: Toolchain) -> tuple[str, str, int]:
@@ -1647,6 +1687,7 @@ def serve_picker(
     """Extract thumbnails, open a local picker, and wait for both frame marks."""
     count = len(times)
     step = _step_for(count, DEFAULT_THUMBNAIL_LIMIT)
+    print("  Extracting preview frames...")
     thumbnails = extract_thumbnails(path, toolchain, step, workdir)
     expected = len(thumbnail_indices(count))
     if len(thumbnails) != expected:
@@ -1656,11 +1697,14 @@ def serve_picker(
             file=sys.stderr,
         )
 
-    browser_video = prepare_browser_video(path, toolchain, workdir)
+    duration = times[-1] if times else 0.0
+    browser_video = prepare_browser_video(path, toolchain, workdir, duration=duration)
     server = _PickerServer(browser_video, workdir, times, video_name=path.name)
     server.start()
     try:
+        print("  Opening the picker in your browser...")
         webbrowser.open(server.url)
+        print("Waiting for launch and 100 km/h marks in the browser...")
         while not server.result_event.wait(0.1):
             pass
         if server.cancelled:

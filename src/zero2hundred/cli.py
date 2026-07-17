@@ -363,7 +363,6 @@ def _pick_frames(
     input_path: Path, toolchain: Toolchain, times: list[float]
 ) -> tuple[float, float] | None:
     print("\nPreparing frame picker...")
-    print("Waiting for launch and 100 km/h marks in the browser...")
     try:
         with tempfile.TemporaryDirectory(prefix="zero2hundred_pick_") as tempdir:
             result = serve_picker(input_path, toolchain, times, Path(tempdir))
