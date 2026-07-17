@@ -22,6 +22,7 @@ from zero2hundred.media import Toolchain, find_toolchain, probe_video
 from zero2hundred.paths import available_output_path, default_output_path, parse_dropped_path
 from zero2hundred.picker import serve_picker
 from zero2hundred.progress import ProgressReporter
+from zero2hundred.ui import UI, build as build_ui
 from zero2hundred.render import RenderJob
 from zero2hundred.timecode import format_timecode, parse_timecode
 
@@ -153,14 +154,15 @@ def main(argv: list[str] | None = None) -> int:
             "use the browser picker or typed timestamps"
         )
 
+    ui = build_ui()
     try:
         settings = _render_settings(args)
         input_path = _input_path(args.input)
         toolchain = find_toolchain()
-        print(f"Inspecting {input_path.name}...")
+        print(ui.note(f"Inspecting {input_path.name}..."))
         media = probe_video(input_path, toolchain)
 
-        print("Reading frame timestamps...")
+        print(ui.note("Reading frame timestamps..."))
         times: list[float] | None
         try:
             times = frame_times(input_path, toolchain)
@@ -168,12 +170,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Warning: could not read frame timestamps: {exc}", file=sys.stderr)
             times = None
 
-        print("\nVideo")
-        print(f"  File        {input_path.name}")
-        print(f"  Resolution  {media.width} x {media.height}")
-        print(f"  Duration    {format_timecode(media.duration)}")
-        print(f"  Frame rate  {media.frame_rate:.3f} fps")
-        print(f"  Frames      {len(times) if times is not None else 'unavailable'}")
+        print("\n" + ui.heading("Video"))
+        print(ui.row("File", input_path.name))
+        print(ui.row("Resolution", f"{media.width} x {media.height}"))
+        print(ui.row("Duration", format_timecode(media.duration)))
+        print(ui.row("Frame rate", f"{media.frame_rate:.3f} fps"))
+        print(ui.row("Frames", str(len(times)) if times is not None else "unavailable"))
 
         picker_marks: tuple[float, float] | None = None
         if args.pick:
@@ -183,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
             else:
-                picker_marks = _pick_frames(input_path, toolchain, times)
+                picker_marks = _pick_frames(input_path, toolchain, times, ui)
 
         if args.start is not None or picker_marks is None:
             launch = _time_value(args.start, "Launch timestamp")
@@ -225,45 +227,45 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         if adjustments:
-            print("\nAdjusted to exact frames")
+            print("\n" + ui.heading("Adjusted to exact frames"))
             for label, original, snapped in adjustments:
                 print(
                     f"  {label:<10}  {format_timecode(original)} -> "
                     f"{format_timecode(snapped)}"
                 )
 
-        print("\nResult")
-        print(f"  Launch      {format_timecode(events.launch)}")
-        print(f"  100 km/h    {format_timecode(events.reached_100)}")
-        print(f"  Time        {events.elapsed:.3f} seconds")
+        print("\n" + ui.heading("Result"))
+        print(ui.row("Launch", format_timecode(events.launch)))
+        print(ui.row("100 km/h", format_timecode(events.reached_100)))
+        print(ui.row("Time", ui.accent(f"{events.elapsed:.3f} seconds")))
         ending = (
             "Continue after freeze"
             if settings.continue_after_freeze
             else "End after freeze"
         )
-        print(f"  Ending      {ending}")
-        print(f"  Output      {output}")
+        print(ui.row("Ending", ending))
+        print(ui.row("Output", str(output)))
 
         if picker_marks is not None:
-            print("\nRe-render without picking again")
-            print(f"  {_rerun_command(args, input_path, events)}")
+            print("\n" + ui.heading("Re-render without picking again"))
+            print(f"  {ui.accent(_rerun_command(args, input_path, events))}")
 
         if args.dry_run:
-            print("\nFFmpeg command")
+            print("\n" + ui.heading("FFmpeg command"))
             print(f"  {subprocess.list2cmdline(job.command())}")
             return 0
 
-        print(f"\nExporting {output.name}...")
-        reporter = ProgressReporter()
+        print("\n" + ui.note(f"Exporting {output.name}..."))
+        reporter = ProgressReporter(ui)
         job.run(reporter)
         reporter.finish()
-        print(f"Done: {output}")
+        print(ui.success(f"Done: {output}"))
         return 0
     except KeyboardInterrupt:
         print("\nCancelled.", file=sys.stderr)
         return 130
     except (Zero2HundredError, ValueError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(ui.fail(f"Error: {exc}"), file=sys.stderr)
         return 2
 
 
@@ -361,13 +363,13 @@ def _time_value(argument: str | None, label: str) -> float:
 
 
 def _pick_frames(
-    input_path: Path, toolchain: Toolchain, times: list[float]
+    input_path: Path, toolchain: Toolchain, times: list[float], ui: UI
 ) -> tuple[float, float] | None:
-    print("\nPreparing frame picker...")
+    print("\n" + ui.note("Preparing frame picker..."))
     try:
         with tempfile.TemporaryDirectory(prefix="zero2hundred_pick_") as tempdir:
-            result = serve_picker(input_path, toolchain, times, Path(tempdir))
-        print("Marks received.")
+            result = serve_picker(input_path, toolchain, times, Path(tempdir), ui=ui)
+        print(ui.success("Marks received."))
         return result
     except (Zero2HundredError, OSError) as exc:
         print(f"Warning: frame picker unavailable: {exc}", file=sys.stderr)

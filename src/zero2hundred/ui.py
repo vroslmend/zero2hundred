@@ -96,6 +96,20 @@ class UI:
     def error(self, text: str) -> str:
         return self._wrap(_CODES["error"], text)
 
+    def note(self, text: str) -> str:
+        """Transient status text (dimmed on a terminal)."""
+        return self.dim(text)
+
+    def success(self, text: str) -> str:
+        if not self.styled:
+            return text
+        return f"{self.ok(self._glyphs['check'])} {text}"
+
+    def fail(self, text: str) -> str:
+        if not self.styled:
+            return text
+        return f"{self.error(self._glyphs['cross'])} {text}"
+
     def heading(self, text: str) -> str:
         if not self.styled:
             return text
@@ -178,6 +192,16 @@ def build(stream: IO[str] | None = None, env: Mapping[str, str] | None = None) -
     stream = stream if stream is not None else sys.stdout
     env = env if env is not None else os.environ
     styled = should_style(stream, env)
-    if styled and sys.platform == "win32":
+    # A real Windows console needs VT turned on or ANSI shows as raw codes; if that
+    # fails there, disable styling. A pipe (e.g. forced color to a file) needs no
+    # console mode change, so its failure must not switch styling off.
+    if styled and sys.platform == "win32" and _isatty(stream):
         styled = _enable_windows_vt()
     return UI(styled=styled, unicode=styled and _supports_unicode(stream))
+
+
+def _isatty(stream: IO[str]) -> bool:
+    try:
+        return bool(stream.isatty())
+    except (AttributeError, ValueError):
+        return False

@@ -10,17 +10,22 @@ ProgressCallback = Callable[[float], None]
 
 
 class ProgressReporter:
-    """Print a single in-place '  Progress    NN%' row, updated once per whole percent."""
+    """Redraw a single progress line in place, once per whole percent. On a terminal
+    it draws a bar; otherwise it keeps the plain '  Progress    NN%' row."""
 
-    def __init__(self) -> None:
+    def __init__(self, ui: object | None = None) -> None:
         self._last_percent = -1
+        self._ui = ui
 
     def __call__(self, fraction: float) -> None:
         percent = max(0, min(100, int(fraction * 100)))
         if percent == self._last_percent:
             return
         self._last_percent = percent
-        print(f"\r  Progress    {percent:3d}%", end="", flush=True)
+        if self._ui is not None and getattr(self._ui, "styled", False):
+            print(f"\r  {self._ui.bar(fraction)}", end="", flush=True)
+        else:
+            print(f"\r  Progress    {percent:3d}%", end="", flush=True)
 
     def finish(self) -> None:
         if self._last_percent >= 0:

@@ -685,7 +685,7 @@ class ServePickerTests(unittest.TestCase):
         captured: dict[str, float] = {}
         stdout = io.StringIO()
 
-        def fake_prepare(path, tool, workdir, *, duration=0.0):
+        def fake_prepare(path, tool, workdir, *, duration=0.0, ui=None):
             captured["duration"] = duration
             return Path("browser-preview.mp4")
 

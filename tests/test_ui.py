@@ -52,6 +52,11 @@ class PlainRenderingTests(unittest.TestCase):
         self.assertEqual(self.ui.row("File", "run.mp4"), "  File        run.mp4")
         self.assertEqual(self.ui.row("Resolution", "1080 x 1920"), "  Resolution  1080 x 1920")
 
+    def test_note_success_and_fail_are_plain(self) -> None:
+        self.assertEqual(self.ui.note("Inspecting run.mp4..."), "Inspecting run.mp4...")
+        self.assertEqual(self.ui.success("Done: out.mp4"), "Done: out.mp4")
+        self.assertEqual(self.ui.fail("Error: nope"), "Error: nope")
+
 
 class StyledRenderingTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -65,6 +70,10 @@ class StyledRenderingTests(unittest.TestCase):
 
     def test_heading_carries_an_accent_bullet(self) -> None:
         self.assertIn("●", self.ui.heading("Video"))
+
+    def test_success_and_fail_carry_glyphs(self) -> None:
+        self.assertIn("✓", self.ui.success("Done"))
+        self.assertIn("✗", self.ui.fail("Error"))
 
     def test_bar_shows_percent_and_stays_within_width(self) -> None:
         bar = self.ui.bar(0.5, width=10)

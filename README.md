@@ -241,6 +241,13 @@ The six timer positions are `top-left`, `top-center`, `top-right`,
 `--dry-run` still inspects the video and collects timing. It stops after showing
 the FFmpeg command and never creates or replaces an output file.
 
+### Terminal output
+
+On a color-capable terminal the program prints a styled summary with progress
+bars and status markers. Output falls back to plain text automatically when it
+is piped or redirected, and setting the `NO_COLOR` environment variable to any
+value disables color.
+
 ## Configuration
 
 You can skip this section unless you want reusable render and overlay settings.

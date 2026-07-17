@@ -16,6 +16,7 @@ import webbrowser
 from zero2hundred.errors import MediaError
 from zero2hundred.media import Toolchain
 from zero2hundred.progress import ProgressReporter, stream_ffmpeg_progress
+from zero2hundred.ui import UI
 
 DEFAULT_THUMBNAIL_LIMIT = 1200
 _CHUNK_SIZE = 64 * 1024
@@ -122,13 +123,19 @@ def _run_ffmpeg(
 
 
 def prepare_browser_video(
-    path: Path, toolchain: Toolchain, workdir: Path, *, duration: float = 0.0
+    path: Path,
+    toolchain: Toolchain,
+    workdir: Path,
+    *,
+    duration: float = 0.0,
+    ui: UI | None = None,
 ) -> Path:
     """Return `path` when browsers can decode it, otherwise create an H.264 preview.
 
     When `duration` is positive the transcode reports percentage progress; with
     an unknown duration it runs silently.
     """
+    ui = ui or UI(styled=False)
     codec, pixel_format, rotation = _browser_video_format(path, toolchain)
     if (
         path.suffix.lower() in {".mp4", ".m4v"}
@@ -138,7 +145,7 @@ def prepare_browser_video(
     ):
         return path
 
-    print("  Creating a browser-compatible full-resolution preview...")
+    print(ui.note("  Creating a browser-compatible full-resolution preview..."))
     preview = workdir / "browser-preview.mp4"
     # Passthrough pacing keeps every VFR frame. The demuxer time base keeps each encoded
     # frame on its original PTS instead of rounding timestamps to the nominal frame rate.
@@ -174,7 +181,7 @@ def prepare_browser_video(
         "+faststart",
     ]
     if duration > 0:
-        reporter = ProgressReporter()
+        reporter = ProgressReporter(ui)
         stream_ffmpeg_progress(
             command + ["-progress", "pipe:1", "-nostats", str(preview)],
             duration,
@@ -1687,13 +1694,20 @@ def serve_calibration(
 
 
 def serve_picker(
-    path: Path, toolchain: Toolchain, times: list[float], workdir: Path
+    path: Path,
+    toolchain: Toolchain,
+    times: list[float],
+    workdir: Path,
+    *,
+    ui: UI | None = None,
 ) -> tuple[float, float]:
     """Extract thumbnails, open a local picker, and wait for both frame marks."""
+    ui = ui or UI(styled=False)
     count = len(times)
     step = _step_for(count, DEFAULT_THUMBNAIL_LIMIT)
-    print("  Extracting preview frames...")
-    thumbnails = extract_thumbnails(path, toolchain, step, workdir)
+    with ui.spinner("Extracting preview frames...") as extracting:
+        thumbnails = extract_thumbnails(path, toolchain, step, workdir)
+        extracting.done("Extracted preview frames")
     expected = len(thumbnail_indices(count))
     if len(thumbnails) != expected:
         print(
@@ -1703,13 +1717,13 @@ def serve_picker(
         )
 
     duration = times[-1] if times else 0.0
-    browser_video = prepare_browser_video(path, toolchain, workdir, duration=duration)
+    browser_video = prepare_browser_video(path, toolchain, workdir, duration=duration, ui=ui)
     server = _PickerServer(browser_video, workdir, times, video_name=path.name)
     server.start()
     try:
-        print("  Opening the picker in your browser...")
+        print(ui.step("Opening the picker in your browser...", state="active"))
         webbrowser.open(server.url)
-        print("Waiting for launch and 100 km/h marks in the browser...")
+        print(ui.note("Waiting for launch and 100 km/h marks in the browser..."))
         while not server.result_event.wait(0.1):
             pass
         if server.cancelled:
