@@ -22,6 +22,18 @@ _RANGE_PATTERN = re.compile(r"bytes=(\d*)-(\d*)$")
 _BROWSER_SAFE_CODECS = {"h264", "vp8", "vp9", "av1"}
 _BROWSER_SAFE_PIXEL_FORMATS = {"yuv420p", "yuvj420p"}
 _MANROPE_FONT = Path(__file__).with_name("assets") / "Manrope-Variable.ttf"
+# A forward-leaning "z" monogram with a speed-tail, ivory on a carbon tile.
+# Inline SVG so the tab icon loads without any external request.
+_FAVICON = (
+    "data:image/svg+xml;base64,"
+    "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAz"
+    "MiI+PHJlY3QgeD0iMS41IiB5PSIxLjUiIHdpZHRoPSIyOSIgaGVpZ2h0PSIyOSIgcng9IjgiIGZp"
+    "bGw9IiMwZTEwMTIiIHN0cm9rZT0iIzJiMmYzMyIvPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2"
+    "IDE2KSBza2V3WCgtMTMpIHRyYW5zbGF0ZSgtMTYgLTE2KSI+PHBhdGggZD0iTTkgMTAuNUgyM0w5"
+    "IDIxIiBmaWxsPSJub25lIiBzdHJva2U9IiNmMmYyZWYiIHN0cm9rZS13aWR0aD0iMi44IiBzdHJv"
+    "a2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48cGF0aCBkPSJNOSAx"
+    "OS43IDkgMjIuNyAyNiAyMS4zNSAyNiAyMS4wNVoiIGZpbGw9IiNmMmYyZWYiLz48L2c+PC9zdmc+"
+)
 
 
 def thumbnail_indices(count: int, limit: int = DEFAULT_THUMBNAIL_LIMIT) -> list[int]:
@@ -233,7 +245,7 @@ def render_picker_html(video_name: str) -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:,">
+<link rel="icon" href="{_FAVICON}">
 <title>Frame picker | {safe_name}</title>
 <style>
   @font-face {{

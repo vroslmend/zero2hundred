@@ -331,6 +331,13 @@ class RenderPickerHtmlTests(unittest.TestCase):
         self.assertNotIn("times[requestedIndex] + 0.002", text)
         self.assertIn("Math.min(0.002, gap * 0.4)", text)
 
+    def test_uses_an_inline_svg_favicon(self) -> None:
+        text = render_picker_html("sample_video.mp4")
+
+        self.assertIn('rel="icon"', text)
+        self.assertIn("data:image/svg+xml;base64,", text)
+        self.assertNotIn('href="data:,"', text)
+
     def test_escapes_video_name(self) -> None:
         text = render_picker_html('<video onload="bad">.mp4')
 
