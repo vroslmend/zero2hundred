@@ -8,7 +8,13 @@ import sys
 import tempfile
 
 from zero2hundred import __version__
-from zero2hundred.config import POSITIONS, RenderSettings, load_settings
+from zero2hundred.config import (
+    OVERLAY_STYLES,
+    POSITIONS,
+    TIMER_FORMATS,
+    RenderSettings,
+    load_settings,
+)
 from zero2hundred.errors import Zero2HundredError
 from zero2hundred.events import EventWindow
 from zero2hundred.frames import frame_after, frame_times, snap_to_frame
@@ -78,6 +84,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     appearance.add_argument("--font", metavar="NAME", help="timer font family")
     appearance.add_argument("--font-file", metavar="PATH", help="timer font file")
+    appearance.add_argument(
+        "--overlay-style",
+        choices=OVERLAY_STYLES,
+        metavar="STYLE",
+        help="overlay style: type-only, quiet-plate, or compact",
+    )
+    appearance.add_argument(
+        "--timer-format",
+        choices=TIMER_FORMATS,
+        metavar="FORMAT",
+        help="timer format: seconds or stopwatch",
+    )
+    appearance.add_argument(
+        "--overlay-scale",
+        type=float,
+        metavar="FACTOR",
+        help="overlay size multiplier (0.5-2.0)",
+    )
 
     output = parser.add_argument_group("output")
     output.add_argument(
@@ -234,6 +258,12 @@ def _render_settings(args: argparse.Namespace) -> RenderSettings:
         overrides["font"] = args.font
     if args.font_file is not None:
         overrides["font_file"] = args.font_file
+    if args.overlay_style is not None:
+        overrides["overlay_style"] = args.overlay_style
+    if args.timer_format is not None:
+        overrides["timer_format"] = args.timer_format
+    if args.overlay_scale is not None:
+        overrides["overlay_scale"] = args.overlay_scale
     if args.continue_after_freeze is not None:
         overrides["continue_after_freeze"] = args.continue_after_freeze
     return replace(settings, **overrides).validated()

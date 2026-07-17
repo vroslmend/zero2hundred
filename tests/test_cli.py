@@ -205,6 +205,32 @@ class PickerCliTests(unittest.TestCase):
             render_job_type.call_args.kwargs["settings"].continue_after_freeze
         )
 
+    def test_appearance_flags_override_configured_settings(self) -> None:
+        configured = RenderSettings(
+            overlay_style="type-only", timer_format="seconds", overlay_scale=1.0
+        )
+        _, _, stderr, _, _, render_job_type = self.run_main(
+            [
+                "input.mp4",
+                "--pick",
+                "--overlay-style",
+                "compact",
+                "--timer-format",
+                "stopwatch",
+                "--overlay-scale",
+                "1.25",
+                "--dry-run",
+            ],
+            (0.5, 1.0),
+            settings=configured,
+        )
+
+        self.assertEqual(stderr, "")
+        passed = render_job_type.call_args.kwargs["settings"]
+        self.assertEqual(passed.overlay_style, "compact")
+        self.assertEqual(passed.timer_format, "stopwatch")
+        self.assertEqual(passed.overlay_scale, 1.25)
+
     def test_continue_after_freeze_overrides_a_configured_short_ending(self) -> None:
         configured = RenderSettings(continue_after_freeze=False)
         result, stdout, stderr, _, _, render_job_type = self.run_main(
