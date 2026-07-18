@@ -597,6 +597,60 @@ def render_picker_html(video_name: str) -> str:
     line-height: 1.45;
   }}
   #status {{ min-height: 16px; color: var(--ivory); }}
+  #timeline {{
+    padding: 9px 14px 3px;
+    border-top: 1px solid var(--etched);
+    background: var(--dash);
+  }}
+  #timelineTrack {{
+    position: relative;
+    height: 20px;
+    cursor: pointer;
+    touch-action: none;
+  }}
+  #timelineTrack::before {{
+    position: absolute;
+    inset: 8px 0;
+    border: 1px solid var(--etched);
+    background: var(--raised);
+    content: "";
+  }}
+  #runSpan {{
+    position: absolute;
+    top: 8px;
+    height: 4px;
+    background: #3a3f44;
+  }}
+  .timeline-tick {{
+    position: absolute;
+    top: 3px;
+    width: 2px;
+    height: 14px;
+    margin-left: -1px;
+    background: var(--soft);
+  }}
+  #hundredTick {{ background: var(--ivory); }}
+  #playhead {{
+    position: absolute;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    margin-left: -1px;
+    background: var(--ivory);
+  }}
+  #timelineTip {{
+    position: absolute;
+    bottom: 24px;
+    padding: 3px 6px;
+    border: 1px solid var(--etched);
+    background: var(--carbon);
+    color: var(--soft);
+    font: 550 11px/1 var(--font-display);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    transform: translateX(-50%);
+    pointer-events: none;
+  }}
   #filmstrip {{
     width: 100%;
     display: flex;
@@ -621,7 +675,7 @@ def render_picker_html(video_name: str) -> str:
   #filmstrip button.selected {{ border-color: var(--ivory); opacity: 1; }}
   #filmstrip button.launch-mark {{ box-shadow: inset 0 3px var(--soft); }}
   #filmstrip button.hundred-mark {{ box-shadow: inset 0 -3px var(--ivory); }}
-  #filmstrip img {{ display: block; height: 94px; width: auto; }}
+  #filmstrip img {{ display: block; height: 94px; width: var(--thumb-width, auto); object-fit: cover; }}
   #filmstrip span {{
     position: absolute;
     right: 5px;
@@ -651,7 +705,7 @@ def render_picker_html(video_name: str) -> str:
     #picker {{ grid-template-columns: 1fr; height: auto; padding: 10px; }}
     .stage {{ height: min(60vh, 620px); }}
     .timing-panel {{ min-height: 440px; }}
-    #filmstrip {{ padding-inline: 10px; }}
+    #timeline, #filmstrip {{ padding-inline: 10px; }}
   }}
   @media (max-width: 560px) {{
     .transport {{ grid-template-columns: 1fr; }}
@@ -737,6 +791,15 @@ def render_picker_html(video_name: str) -> str:
     </div>
   </aside>
 </main>
+<div id="timeline" aria-label="Seek timeline">
+  <div id="timelineTrack">
+    <div id="runSpan" hidden></div>
+    <div id="launchTick" class="timeline-tick" hidden></div>
+    <div id="hundredTick" class="timeline-tick" hidden></div>
+    <div id="playhead" hidden></div>
+    <div id="timelineTip" hidden></div>
+  </div>
+</div>
 <div id="filmstrip" aria-label="Video frames"></div>
 <footer class="credit">
   <span>Made by <a href="https://github.com/vroslmend" target="_blank" rel="noopener">Ammar Hassan</a></span>
@@ -760,7 +823,16 @@ def render_picker_html(video_name: str) -> str:
   const gaugeHint = document.getElementById("gaugeHint");
   const stage = document.querySelector(".stage");
   const statusEl = document.getElementById("status");
+  const timelineTrack = document.getElementById("timelineTrack");
+  const playhead = document.getElementById("playhead");
+  const launchTick = document.getElementById("launchTick");
+  const hundredTick = document.getElementById("hundredTick");
+  const runSpan = document.getElementById("runSpan");
+  const timelineTip = document.getElementById("timelineTip");
   let times = [];
+  let timeOrigin = 0;
+  let timeSpan = 0;
+  let timelinePointerId = null;
   let selected = 0;
   let requestedIndex = 0;
   let seekInFlight = false;
@@ -806,6 +878,8 @@ def render_picker_html(video_name: str) -> str:
     selected = Math.max(0, Math.min(times.length - 1, index));
     timeEl.textContent = times[selected].toFixed(3);
     frameCountEl.textContent = String(selected + 1) + " / " + String(times.length);
+    playhead.style.left = (timelineFraction(times[selected]) * 100) + "%";
+    playhead.hidden = false;
     const thumbFrame = Math.min(
       times.length - 1,
       Math.round(selected / thumbnailStep) * thumbnailStep
@@ -1000,8 +1074,81 @@ def render_picker_html(video_name: str) -> str:
     const markedThumbnail = document.querySelector('[data-frame="' +
       String(Math.min(times.length - 1, Math.round(selected / thumbnailStep) * thumbnailStep)) + '"]');
     if (markedThumbnail) markedThumbnail.classList.add(which + "-mark");
+    const tick = which === "launch" ? launchTick : hundredTick;
+    tick.style.left = (timelineFraction(value) * 100) + "%";
+    tick.hidden = false;
+    updateRunSpan();
     updateFinish();
   }}
+
+  function timelineFraction(value) {{
+    return timeSpan > 0 ? (value - timeOrigin) / timeSpan : 0;
+  }}
+
+  function updateRunSpan() {{
+    if (launch === null || hundred === null) {{
+      runSpan.hidden = true;
+      return;
+    }}
+    const start = timelineFraction(Math.min(launch, hundred));
+    const end = timelineFraction(Math.max(launch, hundred));
+    runSpan.style.left = (start * 100) + "%";
+    runSpan.style.width = ((end - start) * 100) + "%";
+    runSpan.hidden = false;
+  }}
+
+  function timelineTime(event) {{
+    const rect = timelineTrack.getBoundingClientRect();
+    const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    return timeOrigin + fraction * timeSpan;
+  }}
+
+  timelineTrack.addEventListener("pointerdown", function (event) {{
+    if (!times.length || (event.pointerType === "mouse" && event.button !== 0)) return;
+    timelinePointerId = event.pointerId;
+    timelineTrack.setPointerCapture(event.pointerId);
+    requestIndex(nearestIndex(timelineTime(event)));
+    event.preventDefault();
+  }});
+  timelineTrack.addEventListener("pointermove", function (event) {{
+    if (!times.length) return;
+    const value = timelineTime(event);
+    timelineTip.textContent = value.toFixed(3);
+    timelineTip.style.left = (timelineFraction(value) * 100) + "%";
+    timelineTip.hidden = false;
+    if (event.pointerId === timelinePointerId) requestIndex(nearestIndex(value));
+  }});
+  function endTimelineDrag(event) {{
+    if (event.pointerId !== timelinePointerId) return;
+    if (timelineTrack.hasPointerCapture(event.pointerId)) {{
+      timelineTrack.releasePointerCapture(event.pointerId);
+    }}
+    timelinePointerId = null;
+  }}
+  timelineTrack.addEventListener("pointerup", endTimelineDrag);
+  timelineTrack.addEventListener("pointercancel", endTimelineDrag);
+  timelineTrack.addEventListener("pointerleave", function () {{
+    if (timelinePointerId === null) timelineTip.hidden = true;
+  }});
+
+  // Lazy thumbnails have no intrinsic width until they load, so without a
+  // reserved width the strip keeps widening as images stream in and the
+  // scrollbar's end keeps moving away. The video's display aspect ratio fixes
+  // every slot's final width up front (the preview transcode bakes rotation
+  // in, so videoWidth/videoHeight are already the display dimensions).
+  function reserveThumbnailWidth() {{
+    if (!video.videoWidth || !video.videoHeight) return;
+    const width = 94 * video.videoWidth / video.videoHeight;
+    filmstrip.style.setProperty("--thumb-width", width.toFixed(2) + "px");
+  }}
+  video.addEventListener("loadedmetadata", reserveThumbnailWidth);
+  if (video.readyState >= 1) reserveThumbnailWidth();
+
+  filmstrip.addEventListener("wheel", function (event) {{
+    if (!event.deltaY || event.deltaX) return;
+    event.preventDefault();
+    filmstrip.scrollLeft += event.deltaMode === 1 ? event.deltaY * 40 : event.deltaY;
+  }}, {{passive: false}});
 
   launchButton.addEventListener("click", function () {{ mark(launchButton, "launch"); }});
   hundredButton.addEventListener("click", function () {{ mark(hundredButton, "hundred"); }});
@@ -1105,6 +1252,8 @@ def render_picker_html(video_name: str) -> str:
       if (!response.ok) throw new Error("Frame times unavailable.");
       times = await response.json();
       if (!times.length) throw new Error("No frame times found.");
+      timeOrigin = times[0];
+      timeSpan = times[times.length - 1] - times[0];
       launchButton.disabled = false;
       hundredButton.disabled = false;
       thumbnailStep = Math.max(1, Math.ceil(times.length / thumbnailLimit));

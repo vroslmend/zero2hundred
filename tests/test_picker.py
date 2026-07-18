@@ -331,6 +331,36 @@ class RenderPickerHtmlTests(unittest.TestCase):
         self.assertNotIn("times[requestedIndex] + 0.002", text)
         self.assertIn("Math.min(0.002, gap * 0.4)", text)
 
+    def test_filmstrip_reserves_thumbnail_width_before_images_load(self) -> None:
+        text = render_picker_html("sample_video.mp4")
+
+        # Lazy images collapse to zero width until they load, which makes the
+        # strip grow while scrolling so its end can never be reached. The slot
+        # width comes from the video's aspect ratio instead.
+        self.assertNotIn("height: 94px; width: auto;", text)
+        self.assertIn("width: var(--thumb-width, auto)", text)
+        self.assertIn('setProperty("--thumb-width"', text)
+        self.assertIn('video.addEventListener("loadedmetadata", reserveThumbnailWidth)', text)
+
+    def test_filmstrip_scrolls_with_a_plain_mouse_wheel(self) -> None:
+        text = render_picker_html("sample_video.mp4")
+
+        self.assertIn('filmstrip.addEventListener("wheel"', text)
+        self.assertIn("filmstrip.scrollLeft +=", text)
+
+    def test_page_has_a_seek_timeline_with_playhead_and_mark_ticks(self) -> None:
+        text = render_picker_html("sample_video.mp4")
+
+        self.assertIn('<div id="timeline" aria-label="Seek timeline">', text)
+        self.assertIn('id="timelineTrack"', text)
+        self.assertIn('id="playhead"', text)
+        self.assertIn('id="launchTick"', text)
+        self.assertIn('id="hundredTick"', text)
+        self.assertIn('id="runSpan"', text)
+        # Click and drag on the track seek through the existing frame queue.
+        self.assertIn('timelineTrack.addEventListener("pointerdown"', text)
+        self.assertIn("requestIndex(nearestIndex(timelineTime(event)))", text)
+
     def test_header_and_title_carry_the_brand(self) -> None:
         text = render_picker_html("run.mp4")
 
